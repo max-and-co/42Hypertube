@@ -1,0 +1,8 @@
+.env
+__pycache__/
+node_modules/
+.next/
+dist/
+user-service/venv/
+torrent-service/venv/
+.DS_Store
