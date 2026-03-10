@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown logic (if any)
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, root_path="/api/users")
 
 @app.get("/health")
 async def health_check():

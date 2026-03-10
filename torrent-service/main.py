@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
     
     yield
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, root_path="/api/torrent")
 
 @app.get("/health")
 async def health_check():
