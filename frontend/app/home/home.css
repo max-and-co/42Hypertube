@@ -1,0 +1,161 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Cinzel:wght@400;700&display=swap');
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes flicker {
+  0%, 91%, 100% { opacity: 1; }
+  92%           { opacity: .78; }
+  94%           { opacity: .95; }
+  96%           { opacity: .82; }
+}
+
+.f1 { opacity: 0; animation: fadeUp .9s ease  .10s both; }
+.f2 { opacity: 0; animation: fadeUp .9s ease  .30s both; }
+.f3 { opacity: 0; animation: fadeUp .9s ease  .50s both; }
+.f4 { opacity: 0; animation: fadeUp .9s ease  .65s both; }
+.f5 { opacity: 0; animation: fadeUp .9s ease  .80s both; }
+
+.flicker { animation: flicker 7s infinite; }
+
+.metallic {
+  background: linear-gradient(180deg, #fff 0%, #e0e0e0 20%, #b0b0b0 50%, #d8d8d8 70%, #909090 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.home-page {
+  min-height: 100vh;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  font-family: 'Cinzel', serif;
+}
+
+.vignette {
+  position: fixed; inset: 0; pointer-events: none; z-index: 1;
+  background: radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,.9) 100%);
+}
+.scanlines {
+  position: fixed; inset: 0; pointer-events: none; z-index: 2;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,.04) 2px, rgba(0,0,0,.04) 4px);
+}
+.grain {
+  position: fixed; inset: 0; pointer-events: none; z-index: 3;
+  opacity: .04; mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+}
+
+.home-card {
+  position: relative;
+  z-index: 10;
+  background: #0d0d0d;
+  border: 1px solid #1a1a1a;
+  box-shadow: 0 0 80px rgba(0,0,0,.9), 0 0 200px rgba(0,0,0,.7);
+  width: 100%;
+  max-width: 460px;
+  padding: 56px 52px 48px;
+  text-align: center;
+}
+
+.corner {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+}
+.corner.tl { top: 14px;    left: 14px;  border-top:    1px solid #3a3a3a; border-left:   1px solid #3a3a3a; }
+.corner.tr { top: 14px;    right: 14px; border-top:    1px solid #3a3a3a; border-right:  1px solid #3a3a3a; }
+.corner.bl { bottom: 14px; left: 14px;  border-bottom: 1px solid #3a3a3a; border-left:   1px solid #3a3a3a; }
+.corner.br { bottom: 14px; right: 14px; border-bottom: 1px solid #3a3a3a; border-right:  1px solid #3a3a3a; }
+
+.home-header { text-align: center; margin-bottom: 38px; }
+
+.eyebrow {
+  font-family: 'Cinzel', serif;
+  font-size: .55rem;
+  letter-spacing: .65em;
+  color: #555;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.brand {
+  font-family: 'Playfair Display', serif;
+  font-weight: 900;
+  font-size: 3.4rem;
+  line-height: 1;
+  letter-spacing: .06em;
+  margin-bottom: 10px;
+}
+
+.subtitle {
+  font-family: 'Playfair Display', serif;
+  font-style: italic;
+  font-size: .82rem;
+  color: #666;
+  letter-spacing: .18em;
+}
+
+.divider {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #555, transparent);
+  margin-top: 22px;
+}
+
+.section-label {
+  font-family: 'Cinzel', serif;
+  font-size: .58rem;
+  letter-spacing: .55em;
+  color: #555;
+  text-transform: uppercase;
+  margin-bottom: 34px;
+}
+
+.welcome-text {
+  font-family: 'Playfair Display', serif;
+  font-style: italic;
+  font-size: 1rem;
+  color: #888;
+  letter-spacing: .1em;
+  margin-bottom: 20px;
+}
+
+.coming-soon {
+  font-family: 'Playfair Display', serif;
+  font-style: italic;
+  font-size: .9rem;
+  color: #555;
+  letter-spacing: .08em;
+  line-height: 1.8;
+  margin-bottom: 40px;
+}
+
+.submit-btn {
+  width: 100%;
+  background: transparent;
+  border: 1px solid #777;
+  border-radius: 2px;
+  color: #d8d8d8;
+  font-family: 'Cinzel', serif;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .5em;
+  text-transform: uppercase;
+  padding: 15px;
+  cursor: pointer;
+  transition: border-color .3s, color .3s, box-shadow .3s;
+}
+
+.submit-btn:hover {
+  border-color: #e8e8e8;
+  color: #fff;
+  box-shadow: 0 0 30px rgba(200,200,200,.07);
+}

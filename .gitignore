@@ -6,3 +6,4 @@ dist/
 user-service/venv/
 torrent-service/venv/
 .DS_Store
+.vscode/

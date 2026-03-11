@@ -1,0 +1,274 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Cinzel:wght@400;700&display=swap');
+
+/* ── Animations ── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes flicker {
+  0%, 91%, 100% { opacity: 1; }
+  92%           { opacity: .78; }
+  94%           { opacity: .95; }
+  96%           { opacity: .82; }
+}
+
+.f1 { opacity: 0; animation: fadeUp .9s ease  .10s both; }
+.f2 { opacity: 0; animation: fadeUp .9s ease  .30s both; }
+.f3 { opacity: 0; animation: fadeUp .9s ease  .50s both; }
+.f4 { opacity: 0; animation: fadeUp .9s ease  .65s both; }
+.f5 { opacity: 0; animation: fadeUp .9s ease  .80s both; }
+.f6 { opacity: 0; animation: fadeUp .9s ease  .95s both; }
+
+.flicker { animation: flicker 7s infinite; }
+
+/* ── Metallic text ── */
+.metallic {
+  background: linear-gradient(180deg, #fff 0%, #e0e0e0 20%, #b0b0b0 50%, #d8d8d8 70%, #909090 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Page ── */
+.register-page {
+  min-height: 100vh;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  font-family: 'Cinzel', serif;
+}
+
+.vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,.9) 100%);
+}
+
+.scanlines {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,.04) 2px,
+    rgba(0,0,0,.04) 4px
+  );
+}
+
+.grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  opacity: .04;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+}
+
+/* ── Card ── */
+.register-card {
+  position: relative;
+  z-index: 10;
+  background: #0d0d0d;
+  border: 1px solid #1a1a1a;
+  box-shadow: 0 0 80px rgba(0,0,0,.9), 0 0 200px rgba(0,0,0,.7);
+  width: 100%;
+  max-width: 460px;
+  padding: 56px 52px 48px;
+  margin: 40px 0;
+}
+
+/* Corner ornaments */
+.corner {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+}
+.corner.tl { top: 14px;    left: 14px;  border-top:    1px solid #3a3a3a; border-left:   1px solid #3a3a3a; }
+.corner.tr { top: 14px;    right: 14px; border-top:    1px solid #3a3a3a; border-right:  1px solid #3a3a3a; }
+.corner.bl { bottom: 14px; left: 14px;  border-bottom: 1px solid #3a3a3a; border-left:   1px solid #3a3a3a; }
+.corner.br { bottom: 14px; right: 14px; border-bottom: 1px solid #3a3a3a; border-right:  1px solid #3a3a3a; }
+
+/* ── Header ── */
+.register-header {
+  text-align: center;
+  margin-bottom: 38px;
+}
+
+.eyebrow {
+  font-family: 'Cinzel', serif;
+  font-size: .55rem;
+  letter-spacing: .65em;
+  color: #555;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.brand {
+  font-family: 'Playfair Display', serif;
+  font-weight: 900;
+  font-size: 3.4rem;
+  line-height: 1;
+  letter-spacing: .06em;
+  margin-bottom: 10px;
+}
+
+.subtitle {
+  font-family: 'Playfair Display', serif;
+  font-style: italic;
+  font-size: .82rem;
+  color: #666;
+  letter-spacing: .18em;
+}
+
+/* ── Divider ── */
+.divider {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #555, transparent);
+  margin-top: 22px;
+}
+
+.footer-divider {
+  margin-top: 34px;
+  margin-bottom: 22px;
+}
+
+/* ── Section label ── */
+.section-label {
+  font-family: 'Cinzel', serif;
+  font-size: .58rem;
+  letter-spacing: .55em;
+  color: #555;
+  text-align: center;
+  text-transform: uppercase;
+  margin-bottom: 34px;
+}
+
+/* ── Error ── */
+.error-msg {
+  font-family: 'Cinzel', serif;
+  font-size: .62rem;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: #b03030;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+/* ── Form ── */
+.register-form {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.field-row {
+  display: flex;
+  gap: 16px;
+}
+
+.field-row .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+}
+
+.field-select {
+  appearance: none;
+  cursor: pointer;
+}
+
+.field-label {
+  font-family: 'Cinzel', serif;
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .45em;
+  text-transform: uppercase;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.field-input {
+  width: 100%;
+  background: #0a0a0a;
+  border: 1px solid #222;
+  border-radius: 2px;
+  color: #e8e8e8;
+  font-family: 'Cinzel', serif;
+  font-size: .78rem;
+  letter-spacing: .12em;
+  padding: 13px 15px;
+  outline: none;
+  transition: border-color .3s, box-shadow .3s;
+}
+
+.field-input::placeholder {
+  color: #383838;
+  letter-spacing: .2em;
+}
+
+.field-input:focus {
+  border-color: #444;
+  box-shadow: 0 0 20px rgba(200,200,200,.03);
+}
+
+/* ── Button ── */
+.submit-btn {
+  width: 100%;
+  background: transparent;
+  border: 1px solid #777;
+  border-radius: 2px;
+  color: #d8d8d8;
+  font-family: 'Cinzel', serif;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .5em;
+  text-transform: uppercase;
+  padding: 15px;
+  cursor: pointer;
+  margin-top: 6px;
+  transition: border-color .3s, color .3s, box-shadow .3s;
+}
+
+.submit-btn:hover {
+  border-color: #e8e8e8;
+  color: #fff;
+  box-shadow: 0 0 30px rgba(200,200,200,.07);
+}
+
+/* ── Footer ── */
+.login-text {
+  text-align: center;
+  font-family: 'Cinzel', serif;
+  font-size: .62rem;
+  letter-spacing: .18em;
+  color: #555;
+  text-transform: uppercase;
+}
+
+.login-link {
+  color: #666;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: color .3s, border-color .3s;
+}
+
+.login-link:hover {
+  color: #c8c8c8;
+  border-bottom-color: #555;
+}
