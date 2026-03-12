@@ -1,0 +1,611 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Cinzel:wght@400;700&display=swap');
+
+/* ── Animations ── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes flicker {
+  0%, 91%, 100% { opacity: 1; }
+  92%           { opacity: .78; }
+  94%           { opacity: .95; }
+  96%           { opacity: .82; }
+}
+
+.f1 { opacity: 0; animation: fadeUp .9s ease  .10s both; }
+.f2 { opacity: 0; animation: fadeUp .9s ease  .30s both; }
+.f3 { opacity: 0; animation: fadeUp .9s ease  .50s both; }
+.f4 { opacity: 0; animation: fadeUp .9s ease  .65s both; }
+.f5 { opacity: 0; animation: fadeUp .9s ease  .80s both; }
+.f6 { opacity: 0; animation: fadeUp .9s ease  .95s both; }
+
+.flicker { animation: flicker 7s infinite; }
+
+/* ── Metallic text ── */
+.metallic {
+  background: linear-gradient(180deg, #fff 0%, #e0e0e0 20%, #b0b0b0 50%, #d8d8d8 70%, #909090 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Page ── */
+.settings-page {
+  min-height: 100vh;
+  background: #000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  font-family: 'Cinzel', serif;
+  padding: 48px 16px 80px;
+}
+
+.vignette {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,.9) 100%);
+}
+
+.scanlines {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,.04) 2px,
+    rgba(0,0,0,.04) 4px
+  );
+}
+
+.grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+  opacity: .04;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 128px 128px;
+}
+
+/* ── Card ── */
+.settings-card {
+  position: relative;
+  z-index: 10;
+  background: #0d0d0d;
+  border: 1px solid #1a1a1a;
+  box-shadow: 0 0 80px rgba(0,0,0,.9), 0 0 200px rgba(0,0,0,.7);
+  width: 100%;
+  max-width: 520px;
+  padding: 56px 52px 52px;
+}
+
+/* Corner ornaments */
+.corner {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+}
+.corner.tl { top: 14px;    left: 14px;  border-top:    1px solid #3a3a3a; border-left:   1px solid #3a3a3a; }
+.corner.tr { top: 14px;    right: 14px; border-top:    1px solid #3a3a3a; border-right:  1px solid #3a3a3a; }
+.corner.bl { bottom: 14px; left: 14px;  border-bottom: 1px solid #3a3a3a; border-left:   1px solid #3a3a3a; }
+.corner.br { bottom: 14px; right: 14px; border-bottom: 1px solid #3a3a3a; border-right:  1px solid #3a3a3a; }
+
+/* ── Header ── */
+.settings-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.eyebrow {
+  font-family: 'Cinzel', serif;
+  font-size: .55rem;
+  letter-spacing: .65em;
+  color: #555;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.brand {
+  font-family: 'Playfair Display', serif;
+  font-weight: 900;
+  font-size: 3.4rem;
+  line-height: 1;
+  letter-spacing: .06em;
+  margin-bottom: 10px;
+}
+
+.subtitle {
+  font-family: 'Playfair Display', serif;
+  font-style: italic;
+  font-size: .82rem;
+  color: #666;
+  letter-spacing: .18em;
+}
+
+/* ── Divider ── */
+.divider {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #555, transparent);
+  margin-top: 22px;
+}
+
+.section-divider {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #2a2a2a, transparent);
+  margin: 36px 0;
+}
+
+/* ── Section label ── */
+.section-label {
+  font-family: 'Cinzel', serif;
+  font-size: .58rem;
+  letter-spacing: .55em;
+  color: #555;
+  text-align: center;
+  text-transform: uppercase;
+  margin-bottom: 30px;
+}
+
+/* ── Avatar ── */
+.avatar-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 38px;
+}
+
+.avatar-wrap {
+  position: relative;
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  border: 1px solid #2a2a2a;
+  overflow: hidden;
+  background: #0a0a0a;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+}
+
+.avatar-upload-btn {
+  background: transparent;
+  border: 1px solid #333;
+  border-radius: 2px;
+  color: #666;
+  font-family: 'Cinzel', serif;
+  font-size: .56rem;
+  font-weight: 700;
+  letter-spacing: .45em;
+  text-transform: uppercase;
+  padding: 10px 20px;
+  cursor: pointer;
+  transition: border-color .3s, color .3s;
+}
+
+.avatar-upload-btn:hover {
+  border-color: #666;
+  color: #c8c8c8;
+}
+
+/* ── Form ── */
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.field-row {
+  display: flex;
+  gap: 16px;
+}
+
+.field-row .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+}
+
+.field-label {
+  font-family: 'Cinzel', serif;
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .45em;
+  text-transform: uppercase;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.field-input {
+  width: 100%;
+  background: #0a0a0a;
+  border: 1px solid #222;
+  border-radius: 2px;
+  color: #e8e8e8;
+  font-family: 'Cinzel', serif;
+  font-size: .78rem;
+  letter-spacing: .12em;
+  padding: 13px 15px;
+  outline: none;
+  transition: border-color .3s, box-shadow .3s;
+  box-sizing: border-box;
+}
+
+.field-input::placeholder {
+  color: #383838;
+  letter-spacing: .2em;
+}
+
+.field-input:focus {
+  border-color: #444;
+  box-shadow: 0 0 20px rgba(200,200,200,.03);
+}
+
+.field-select {
+  appearance: none;
+  cursor: pointer;
+}
+
+/* ── Messages ── */
+.error-msg {
+  font-family: 'Cinzel', serif;
+  font-size: .62rem;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: #b03030;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.success-msg {
+  font-family: 'Cinzel', serif;
+  font-size: .62rem;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: #3a7a3a;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+/* ── Buttons ── */
+.submit-btn {
+  width: 100%;
+  background: transparent;
+  border: 1px solid #777;
+  border-radius: 2px;
+  color: #d8d8d8;
+  font-family: 'Cinzel', serif;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .5em;
+  text-transform: uppercase;
+  padding: 15px;
+  cursor: pointer;
+  margin-top: 6px;
+  transition: border-color .3s, color .3s, box-shadow .3s;
+}
+
+.submit-btn:hover {
+  border-color: #e8e8e8;
+  color: #fff;
+  box-shadow: 0 0 30px rgba(200,200,200,.07);
+}
+
+.submit-btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+/* ── Back link & logout ── */
+.back-link-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 34px;
+}
+
+.back-link {
+  font-family: 'Cinzel', serif;
+  font-size: .62rem;
+  letter-spacing: .18em;
+  color: #555;
+  text-decoration: none;
+  text-transform: uppercase;
+  border-bottom: 1px solid transparent;
+  transition: color .3s, border-color .3s;
+}
+
+.back-link:hover {
+  color: #c8c8c8;
+  border-bottom-color: #555;
+}
+
+.logout-btn {
+  background: transparent;
+  border: none;
+  color: #444;
+  font-family: 'Cinzel', serif;
+  font-size: .62rem;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  transition: color .3s;
+}
+
+.logout-btn:hover {
+  color: #b03030;
+}
+
+/* ── Member search ── */
+.search-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.search-wrap {
+  display: flex;
+  align-items: center;
+  background: #0a0a0a;
+  border: 1px solid #222;
+  border-radius: 2px;
+  transition: border-color .3s;
+  gap: 12px;
+  padding: 0 14px;
+}
+
+.search-wrap:focus-within {
+  border-color: #444;
+  box-shadow: 0 0 20px rgba(200,200,200,.03);
+}
+
+.search-icon {
+  color: #444;
+  flex-shrink: 0;
+}
+
+.search-section .search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #e8e8e8;
+  font-family: 'Cinzel', serif;
+  font-size: .72rem;
+  letter-spacing: .2em;
+  padding: 13px 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.search-section .search-input::placeholder {
+  color: #383838;
+  letter-spacing: .3em;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.search-spinner {
+  width: 12px;
+  height: 12px;
+  border: 1px solid #333;
+  border-top-color: #666;
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  flex-shrink: 0;
+}
+
+.search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid #1a1a1a;
+  border-top: none;
+}
+
+.search-result-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #111;
+  cursor: pointer;
+  transition: background .2s;
+}
+
+.search-result-item:last-child {
+  border-bottom: none;
+}
+
+.search-result-item:hover {
+  background: #111;
+}
+
+.result-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #0a0a0a;
+  border: 1px solid #2a2a2a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  color: #333;
+}
+
+.result-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.result-username {
+  font-family: 'Cinzel', serif;
+  font-size: .66rem;
+  letter-spacing: .3em;
+  color: #888;
+  text-transform: uppercase;
+}
+
+.search-empty {
+  font-family: 'Cinzel', serif;
+  font-size: .58rem;
+  letter-spacing: .35em;
+  color: #333;
+  text-align: center;
+  text-transform: uppercase;
+  padding: 18px 0 4px;
+}
+
+.result-chevron {
+  margin-left: auto;
+  color: #333;
+  flex-shrink: 0;
+  transition: color .2s;
+}
+
+.search-result-item:hover .result-chevron {
+  color: #777;
+}
+
+/* ── Inline profile card ── */
+.profile-card {
+  position: relative;
+  border: 1px solid #1a1a1a;
+  padding: 36px 28px 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  animation: fadeUp .4s ease both;
+}
+
+.profile-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  background: transparent;
+  border: none;
+  color: #444;
+  font-size: .7rem;
+  cursor: pointer;
+  line-height: 1;
+  padding: 4px 6px;
+  transition: color .2s;
+  font-family: 'Cinzel', serif;
+  letter-spacing: .05em;
+}
+
+.profile-close:hover {
+  color: #c8c8c8;
+}
+
+.profile-avatar-wrap {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  border: 1px solid #2a2a2a;
+  overflow: hidden;
+  background: #0a0a0a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 6px;
+}
+
+.profile-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.profile-avatar-placeholder {
+  color: #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.profile-fullname {
+  font-family: 'Playfair Display', serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #d8d8d8;
+  letter-spacing: .06em;
+  text-align: center;
+}
+
+.profile-username {
+  font-family: 'Cinzel', serif;
+  font-size: .6rem;
+  letter-spacing: .4em;
+  color: #555;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.profile-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 20px;
+  border: 1px solid #1a1a1a;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.profile-meta-label {
+  font-family: 'Cinzel', serif;
+  font-size: .55rem;
+  letter-spacing: .45em;
+  color: #444;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.profile-meta-value {
+  font-family: 'Cinzel', serif;
+  font-size: .65rem;
+  letter-spacing: .2em;
+  color: #888;
+  margin-left: auto;
+  text-transform: uppercase;
+}
