@@ -2,8 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth import get_current_user_id
-from database import get_db
+from auth import get_current_user_id, get_db
 from models import Movie, Comment
 from schemas import CommentCreate
 

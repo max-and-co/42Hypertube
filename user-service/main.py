@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy import text, select, func
 
-from database import engine, async_session
+from auth import engine, async_session
 from models import Base, Movie
 from routers import auth, oauth, users, movies, comments
 

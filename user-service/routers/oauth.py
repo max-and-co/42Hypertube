@@ -4,13 +4,12 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth import create_access_token, verify_password, set_auth_cookie
-from config import (
+from auth import (
+    create_access_token, verify_password, set_auth_cookie, get_db,
     FRONTEND_URL,
     FT_CLIENT_ID, FT_CLIENT_SECRET, FT_REDIRECT_URI,
     GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, GITHUB_REDIRECT_URI,
 )
-from database import get_db
 from models import User
 
 router = APIRouter()

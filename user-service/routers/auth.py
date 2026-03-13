@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, Response, HTTPException, status
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth import get_password_hash, verify_password, set_auth_cookie
-from config import FRONTEND_URL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM
-from database import get_db
+from auth import (
+    get_password_hash, verify_password, set_auth_cookie, get_db,
+    FRONTEND_URL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM,
+)
 from models import User
 from schemas import UserCreate, UserLogin, ForgotPasswordRequest, ResetPasswordRequest
 
