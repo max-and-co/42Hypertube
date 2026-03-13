@@ -10,14 +10,8 @@ def get_secret() -> str:
         raise RuntimeError("JWT_SECRET_KEY environment variable is not set")
     return secret
 
-def get_current_user_from_cookie(request: Request) -> int:
-    """Dependency to extract the JWT from the HttpOnly cookie"""
-    token = request.cookies.get("access_token")
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-        )
+
+def decode_token(token: str) -> int:
     try:
         payload = jwt.decode(token, get_secret(), algorithms=[ALGORITHM])
         user_id = payload.get("sub")
@@ -38,3 +32,23 @@ def get_current_user_from_cookie(request: Request) -> int:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
         )
+
+
+def get_current_user_id(request: Request) -> int:
+    """Accept both Authorization: Bearer <token> header and HttpOnly cookie."""
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        return decode_token(auth_header[7:])
+
+    token = request.cookies.get("access_token")
+    if token:
+        return decode_token(token)
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Not authenticated",
+    )
+
+
+def get_current_user_from_cookie(request: Request) -> int:
+    return get_current_user_id(request)

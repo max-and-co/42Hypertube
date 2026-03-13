@@ -10,44 +10,16 @@ const LANGUAGES = [
   { value: "es", label: "Español" },
 ];
 
-const MOVIE_ROWS = [
-  {
-    title: "Now Showing",
-    movies: [
-      { id: 1, title: "The Grand Illusion", year: "1937", genre: "Drama" },
-      { id: 2, title: "Metropolis", year: "1927", genre: "Sci-Fi" },
-      { id: 3, title: "Nosferatu", year: "1922", genre: "Horror" },
-      { id: 4, title: "The Cabinet", year: "1920", genre: "Mystery" },
-      { id: 5, title: "Sunrise", year: "1927", genre: "Romance" },
-      { id: 6, title: "M", year: "1931", genre: "Thriller" },
-      { id: 7, title: "City Lights", year: "1931", genre: "Comedy" },
-    ],
-  },
-  {
-    title: "Recently Added",
-    movies: [
-      { id: 8, title: "The Gold Rush", year: "1925", genre: "Comedy" },
-      { id: 9, title: "Battleship Potemkin", year: "1925", genre: "Drama" },
-      { id: 10, title: "Intolerance", year: "1916", genre: "Drama" },
-      { id: 11, title: "The General", year: "1926", genre: "Comedy" },
-      { id: 12, title: "Greed", year: "1924", genre: "Drama" },
-      { id: 13, title: "Pandora's Box", year: "1929", genre: "Drama" },
-      { id: 14, title: "The Crowd", year: "1928", genre: "Drama" },
-    ],
-  },
-  {
-    title: "Classic Serials",
-    movies: [
-      { id: 15, title: "Dr. Mabuse", year: "1922", genre: "Crime" },
-      { id: 16, title: "The Golem", year: "1920", genre: "Horror" },
-      { id: 17, title: "Faust", year: "1926", genre: "Fantasy" },
-      { id: 18, title: "Spies", year: "1928", genre: "Thriller" },
-      { id: 19, title: "The Last Laugh", year: "1924", genre: "Drama" },
-      { id: 20, title: "Varieté", year: "1925", genre: "Drama" },
-      { id: 21, title: "Joyless Street", year: "1925", genre: "Drama" },
-    ],
-  },
-];
+type MovieResult = {
+  id: string;
+  identifier: string;
+  title: string;
+  year: string;
+  creator?: string | null;
+  description?: string | null;
+  thumbnail?: string | null;
+  archive_url?: string | null;
+};
 
 const POSTER_GRADIENTS = [
   "linear-gradient(160deg, #0d0d0d 0%, #111 50%, #0a0a0a 100%)",
@@ -64,8 +36,33 @@ export default function Home() {
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [language, setLanguage] = useState("en");
+  const [searchQuery, setSearchQuery] = useState("classic cinema");
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [movies, setMovies] = useState<MovieResult[]>([]);
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const runSearch = async (query: string) => {
+    const normalized = query.trim();
+    setIsSearching(true);
+    setSearchError(null);
+    try {
+      const params = new URLSearchParams({ q: normalized, limit: "24" });
+      const res = await fetch(`/api/torrent/search?${params.toString()}`);
+      if (!res.ok) {
+        throw new Error(`Search failed (${res.status})`);
+      }
+      const data = await res.json();
+      setMovies(Array.isArray(data.results) ? data.results : []);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setSearchError(message);
+      setMovies([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   useEffect(() => {
     fetch("/api/users/me").then(async (res) => {
@@ -75,6 +72,7 @@ export default function Home() {
         const data = await res.json();
         setUsername(data.username);
         setProfilePicture(data.profile_picture ?? null);
+        runSearch("classic cinema");
       }
     });
   }, [router]);
@@ -94,6 +92,17 @@ export default function Home() {
     router.replace("/login");
   };
 
+  const handleSearch = () => {
+    runSearch(searchQuery);
+  };
+
+  const heroMovie = movies[0];
+  const rows = [
+    { title: "Top Results", movies: movies.slice(0, 8) },
+    { title: "More to Explore", movies: movies.slice(8, 16) },
+    { title: "From the Archive", movies: movies.slice(16, 24) },
+  ].filter((row) => row.movies.length > 0);
+
   return (
     <div className="home-page">
       <div className="vignette" />
@@ -110,9 +119,14 @@ export default function Home() {
           <input
             className="search-input"
             type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSearch();
+            }}
             placeholder="Search titles, directors, genres…"
           />
-          <button className="search-btn" aria-label="Search">
+          <button className="search-btn" aria-label="Search" onClick={handleSearch}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <circle cx="11" cy="11" r="8" />
               <path d="m21 21-4.35-4.35" />
@@ -195,22 +209,37 @@ export default function Home() {
         <div className="hero-overlay" />
         <div className="hero-content">
           <p className="hero-eyebrow">✦ &nbsp; Featured Presentation &nbsp; ✦</p>
-          <h1 className="hero-title metallic">The Grand<br />Illusion</h1>
-          <p className="hero-meta">1937 &nbsp;·&nbsp; Drama &nbsp;·&nbsp; 114 min</p>
+          <h1 className="hero-title metallic">{heroMovie?.title ?? "Archive Search"}</h1>
+          <p className="hero-meta">
+            {heroMovie?.year ?? "N/A"}
+            {heroMovie?.creator ? `  ·  ${heroMovie.creator}` : ""}
+          </p>
           <p className="hero-desc">
-            A masterwork of world cinema. Two French officers attempt to escape
-            from a German prisoner-of-war camp during the First World War.
+            {heroMovie?.description ?? "Search public-domain movies from archive.org and explore cinema history."}
           </p>
           <div className="hero-actions">
-            <button className="hero-btn">Watch Now</button>
-            <button className="hero-btn hero-btn-secondary">More Info</button>
+            <button
+              className="hero-btn"
+              onClick={() => {
+                if (heroMovie?.archive_url) window.open(heroMovie.archive_url, "_blank", "noopener,noreferrer");
+              }}
+            >
+              Open on Archive.org
+            </button>
+            <button className="hero-btn hero-btn-secondary" onClick={handleSearch}>Refresh Results</button>
           </div>
         </div>
       </section>
 
       {/* ── Movie rows ── */}
       <main className="home-main">
-        {MOVIE_ROWS.map((row, rowIdx) => (
+        {isSearching && <p className="search-status">Searching archive.org...</p>}
+        {searchError && <p className="search-status search-status-error">{searchError}</p>}
+        {!isSearching && !searchError && rows.length === 0 && (
+          <p className="search-status">No results found for this query.</p>
+        )}
+
+        {rows.map((row, rowIdx) => (
           <section key={row.title} className="movie-row f3" style={{ animationDelay: `${0.4 + rowIdx * 0.1}s` }}>
             <div className="row-header">
               <h2 className="row-title">{row.title}</h2>
@@ -219,19 +248,30 @@ export default function Home() {
             </div>
             <div className="row-scroll">
               {row.movies.map((movie, i) => (
-                <div key={movie.id} className="movie-card">
+                <a
+                  key={movie.id}
+                  className="movie-card"
+                  href={movie.archive_url ?? "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
                   <div className="movie-poster">
-                    <div
-                      className="movie-poster-inner"
-                      style={{ background: POSTER_GRADIENTS[i % POSTER_GRADIENTS.length] }}
-                    >
-                      <p className="movie-poster-year">{movie.year}</p>
-                      <p className="movie-poster-num">{String(i + 1).padStart(2, "0")}</p>
-                    </div>
+                    {movie.thumbnail ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={movie.thumbnail} alt={movie.title} className="movie-poster-image" loading="lazy" />
+                    ) : (
+                      <div
+                        className="movie-poster-inner"
+                        style={{ background: POSTER_GRADIENTS[i % POSTER_GRADIENTS.length] }}
+                      >
+                        <p className="movie-poster-year">{movie.year}</p>
+                        <p className="movie-poster-num">{String(i + 1).padStart(2, "0")}</p>
+                      </div>
+                    )}
                   </div>
                   <p className="movie-title">{movie.title}</p>
-                  <p className="movie-info">{movie.genre} · {movie.year}</p>
-                </div>
+                  <p className="movie-info">{movie.creator ?? "Archive.org"} · {movie.year}</p>
+                </a>
               ))}
             </div>
           </section>

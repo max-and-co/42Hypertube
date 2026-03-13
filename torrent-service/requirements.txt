@@ -3,3 +3,5 @@ uvicorn[standard]
 sqlalchemy
 asyncpg
 pyjwt
+internetarchive
+httpx
