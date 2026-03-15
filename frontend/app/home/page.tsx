@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import "./home.css";
 
@@ -10,15 +10,30 @@ const LANGUAGES = [
   { value: "es", label: "Español" },
 ];
 
-type MovieResult = {
+type DiscoverMovie = {
   id: string;
-  identifier: string;
+  source: string;
   title: string;
-  year: string;
-  creator?: string | null;
-  description?: string | null;
-  thumbnail?: string | null;
-  archive_url?: string | null;
+  year: number | null;
+  imdb_id?: string | null;
+  imdb_rating: number | null;
+  thumbnail: string | null;
+  genres: string[];
+  downloads: number | null;
+  seeders: number | null;
+  peers: number | null;
+  torrent_hash?: string | null;
+  watched: boolean;
+  url?: string | null;
+};
+
+type DiscoverResponse = {
+  query: string;
+  page: number;
+  limit: number;
+  total: number;
+  has_more: boolean;
+  results: DiscoverMovie[];
 };
 
 const POSTER_GRADIENTS = [
@@ -36,46 +51,117 @@ export default function Home() {
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [language, setLanguage] = useState("en");
-  const [searchQuery, setSearchQuery] = useState("classic cinema");
-  const [isSearching, setIsSearching] = useState(false);
+
+  const [searchInput, setSearchInput] = useState("");
+  const [activeQuery, setActiveQuery] = useState("");
+
+  const [sortBy, setSortBy] = useState("downloads");
+  const [sortDir, setSortDir] = useState("desc");
+  const [genre, setGenre] = useState("");
+  const [yearMin, setYearMin] = useState("");
+  const [yearMax, setYearMax] = useState("");
+  const [imdbMin, setImdbMin] = useState("");
+
+  const [movies, setMovies] = useState<DiscoverMovie[]>([]);
+  const [isAuthReady, setIsAuthReady] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingInitial, setIsLoadingInitial] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [movies, setMovies] = useState<MovieResult[]>([]);
+
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  const runSearch = async (query: string) => {
-    const normalized = query.trim();
-    setIsSearching(true);
-    setSearchError(null);
-    try {
-      const params = new URLSearchParams({ q: normalized, limit: "24" });
-      const res = await fetch(`/api/torrent/search?${params.toString()}`);
-      if (!res.ok) {
-        throw new Error(`Search failed (${res.status})`);
-      }
-      const data = await res.json();
-      setMovies(Array.isArray(data.results) ? data.results : []);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setSearchError(message);
-      setMovies([]);
-    } finally {
-      setIsSearching(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const effectiveSort = (() => {
+    if (activeQuery.trim() && sortBy === "downloads") {
+      return { sortBy: "title", sortDir: "asc" };
     }
-  };
+    return { sortBy, sortDir };
+  })();
+
+  const fetchMovies = useCallback(
+    async (targetPage: number, reset: boolean) => {
+      if (reset) {
+        setIsLoadingInitial(true);
+      } else {
+        setIsLoadingMore(true);
+      }
+      setSearchError(null);
+
+      const params = new URLSearchParams({
+        q: activeQuery.trim(),
+        page: String(targetPage),
+        limit: "24",
+        sort_by: effectiveSort.sortBy,
+        sort_dir: effectiveSort.sortDir,
+      });
+
+      if (genre.trim()) params.set("genre", genre.trim());
+      if (yearMin.trim()) params.set("year_min", yearMin.trim());
+      if (yearMax.trim()) params.set("year_max", yearMax.trim());
+      if (imdbMin.trim()) params.set("imdb_min", imdbMin.trim());
+
+      try {
+        const res = await fetch(`/api/movies/discover?${params.toString()}`);
+        if (!res.ok) {
+          throw new Error(`Discover failed (${res.status})`);
+        }
+
+        const data = (await res.json()) as DiscoverResponse;
+        const incoming = Array.isArray(data.results) ? data.results : [];
+
+        setMovies((prev) => {
+          if (reset) return incoming;
+          const known = new Set(prev.map((m) => `${m.source}:${m.id}`));
+          const merged = [...prev];
+          for (const movie of incoming) {
+            const key = `${movie.source}:${movie.id}`;
+            if (!known.has(key)) {
+              known.add(key);
+              merged.push(movie);
+            }
+          }
+          return merged;
+        });
+
+        setPage(targetPage);
+        setHasMore(Boolean(data.has_more));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unknown error";
+        setSearchError(message);
+        if (reset) {
+          setMovies([]);
+          setHasMore(false);
+        }
+      } finally {
+        if (reset) {
+          setIsLoadingInitial(false);
+        } else {
+          setIsLoadingMore(false);
+        }
+      }
+    },
+    [activeQuery, effectiveSort.sortBy, effectiveSort.sortDir, genre, yearMin, yearMax, imdbMin]
+  );
 
   useEffect(() => {
     fetch("/api/users/me").then(async (res) => {
       if (!res.ok) {
         router.replace("/login");
-      } else {
-        const data = await res.json();
-        setUsername(data.username);
-        setProfilePicture(data.profile_picture ?? null);
-        runSearch("classic cinema");
+        return;
       }
+      const data = await res.json();
+      setUsername(data.username);
+      setProfilePicture(data.profile_picture ?? null);
+      setIsAuthReady(true);
     });
   }, [router]);
+
+  useEffect(() => {
+    if (!isAuthReady) return;
+    fetchMovies(1, true);
+  }, [isAuthReady, fetchMovies]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -87,21 +173,77 @@ export default function Home() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (!first.isIntersecting) return;
+        if (!hasMore || isLoadingInitial || isLoadingMore) return;
+        fetchMovies(page + 1, false);
+      },
+      { rootMargin: "250px 0px" }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [page, hasMore, isLoadingInitial, isLoadingMore, fetchMovies]);
+
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     router.replace("/login");
   };
 
   const handleSearch = () => {
-    runSearch(searchQuery);
+    setActiveQuery(searchInput.trim());
   };
 
-  const heroMovie = movies[0];
-  const rows = [
-    { title: "Top Results", movies: movies.slice(0, 8) },
-    { title: "More to Explore", movies: movies.slice(8, 16) },
-    { title: "From the Archive", movies: movies.slice(16, 24) },
-  ].filter((row) => row.movies.length > 0);
+  const handleClearFilters = () => {
+    setGenre("");
+    setYearMin("");
+    setYearMax("");
+    setImdbMin("");
+    setSortBy("downloads");
+    setSortDir("desc");
+  };
+
+  const handleToggleWatched = async (movie: DiscoverMovie) => {
+    const key = `${movie.source}:${movie.id}`;
+    setMovies((prev) => prev.map((m) => (`${m.source}:${m.id}` === key ? { ...m, watched: !m.watched } : m)));
+
+    try {
+      const res = await fetch(`/api/movies/${encodeURIComponent(movie.id)}/watched-toggle?source=${encodeURIComponent(movie.source)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ watched: !movie.watched }),
+      });
+      if (!res.ok) {
+        throw new Error(`Watch toggle failed (${res.status})`);
+      }
+    } catch {
+      setMovies((prev) => prev.map((m) => (`${m.source}:${m.id}` === key ? { ...m, watched: movie.watched } : m)));
+    }
+  };
+
+  const openWatchPage = (movie: DiscoverMovie) => {
+    const params = new URLSearchParams();
+    params.set("title", movie.title);
+    if (movie.year !== null) params.set("year", String(movie.year));
+    if (movie.imdb_rating !== null) params.set("imdb_rating", String(movie.imdb_rating));
+    if (movie.imdb_id) params.set("imdb_id", movie.imdb_id);
+    if (movie.thumbnail) {
+      params.set("thumbnail", movie.thumbnail);
+      params.set("cover_image", movie.thumbnail);
+    }
+    if (movie.genres?.length) params.set("genres", movie.genres.join(","));
+    if (movie.torrent_hash) params.set("torrent_hash", movie.torrent_hash);
+
+    router.push(`/watch/${encodeURIComponent(movie.source)}/${encodeURIComponent(movie.id)}?${params.toString()}`);
+  };
+
+  const heroMovie = movies.find((movie) => Boolean(movie.thumbnail)) ?? movies[0] ?? null;
 
   return (
     <div className="home-page">
@@ -109,22 +251,21 @@ export default function Home() {
       <div className="scanlines" />
       <div className="grain" />
 
-      {/* ── Header ── */}
       <header className="site-header f1">
         <div className="header-brand">
-          <span className="metallic flicker">LUMIÈRE</span>
+          <span className="metallic flicker">LUMIERE</span>
         </div>
 
         <div className="header-search">
           <input
             className="search-input"
             type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") handleSearch();
             }}
-            placeholder="Search titles, directors, genres…"
+            placeholder="Search movies..."
           />
           <button className="search-btn" aria-label="Search" onClick={handleSearch}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -177,13 +318,11 @@ export default function Home() {
                   <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                 </svg>
                 <span className="lang-label">Lang</span>
-                <select
-                  className="lang-select"
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                >
+                <select className="lang-select" value={language} onChange={(e) => setLanguage(e.target.value)}>
                   {LANGUAGES.map((l) => (
-                    <option key={l.value} value={l.value}>{l.label}</option>
+                    <option key={l.value} value={l.value}>
+                      {l.label}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -201,88 +340,148 @@ export default function Home() {
         </div>
       </header>
 
-      {/* ── Hero ── */}
       <section className="hero f2">
         <div className="hero-bg">
+          {heroMovie?.thumbnail ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={heroMovie.thumbnail} alt={heroMovie.title} className="hero-bg-image" />
+          ) : null}
           <div className="hero-bg-pattern" />
         </div>
         <div className="hero-overlay" />
         <div className="hero-content">
-          <p className="hero-eyebrow">✦ &nbsp; Featured Presentation &nbsp; ✦</p>
-          <h1 className="hero-title metallic">{heroMovie?.title ?? "Archive Search"}</h1>
+          <p className="hero-eyebrow">Featured Selection</p>
+          <h1 className="hero-title metallic">{heroMovie?.title ?? "Most Popular Videos"}</h1>
           <p className="hero-meta">
             {heroMovie?.year ?? "N/A"}
-            {heroMovie?.creator ? `  ·  ${heroMovie.creator}` : ""}
+            {heroMovie?.imdb_rating ? `  ·  IMDb ${heroMovie.imdb_rating.toFixed(1)}` : ""}
           </p>
           <p className="hero-desc">
-            {heroMovie?.description ?? "Search public-domain movies from archive.org and explore cinema history."}
+            {activeQuery.trim()
+              ? `Search results for "${activeQuery}" sorted by ${effectiveSort.sortBy}.`
+              : "No search selected. Showing popular videos from external sources."}
           </p>
           <div className="hero-actions">
             <button
               className="hero-btn"
               onClick={() => {
-                if (heroMovie?.archive_url) window.open(heroMovie.archive_url, "_blank", "noopener,noreferrer");
+                if (heroMovie) {
+                  openWatchPage(heroMovie);
+                }
               }}
             >
-              Open on Archive.org
+              Watch Now
             </button>
-            <button className="hero-btn hero-btn-secondary" onClick={handleSearch}>Refresh Results</button>
+            <button className="hero-btn hero-btn-secondary" onClick={() => fetchMovies(1, true)}>
+              Refresh
+            </button>
           </div>
         </div>
       </section>
 
-      {/* ── Movie rows ── */}
       <main className="home-main">
-        {isSearching && <p className="search-status">Searching archive.org...</p>}
+        <section className="filters-panel f3">
+          <div className="filters-grid">
+            <label className="filter-field">
+              <span>Sort</span>
+              <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                <option value="downloads">Popularity</option>
+                <option value="title">Name</option>
+                <option value="imdb_rating">IMDb</option>
+                <option value="year">Year</option>
+                <option value="seeders">Seeders</option>
+                <option value="peers">Peers</option>
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Direction</span>
+              <select value={sortDir} onChange={(e) => setSortDir(e.target.value)}>
+                <option value="desc">Desc</option>
+                <option value="asc">Asc</option>
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Genre</span>
+              <input value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="Drama" />
+            </label>
+            <label className="filter-field">
+              <span>Year Min</span>
+              <input value={yearMin} onChange={(e) => setYearMin(e.target.value)} inputMode="numeric" placeholder="1990" />
+            </label>
+            <label className="filter-field">
+              <span>Year Max</span>
+              <input value={yearMax} onChange={(e) => setYearMax(e.target.value)} inputMode="numeric" placeholder="2026" />
+            </label>
+            <label className="filter-field">
+              <span>IMDb Min</span>
+              <input value={imdbMin} onChange={(e) => setImdbMin(e.target.value)} inputMode="decimal" placeholder="7.5" />
+            </label>
+          </div>
+          <div className="filters-actions">
+            <button className="row-more" onClick={() => setActiveQuery(searchInput.trim())}>Apply</button>
+            <button className="row-more" onClick={handleClearFilters}>Reset</button>
+          </div>
+        </section>
+
+        {isLoadingInitial && <p className="search-status">Loading catalog...</p>}
         {searchError && <p className="search-status search-status-error">{searchError}</p>}
-        {!isSearching && !searchError && rows.length === 0 && (
-          <p className="search-status">No results found for this query.</p>
+        {!isLoadingInitial && !searchError && movies.length === 0 && (
+          <p className="search-status">No results match your criteria.</p>
         )}
 
-        {rows.map((row, rowIdx) => (
-          <section key={row.title} className="movie-row f3" style={{ animationDelay: `${0.4 + rowIdx * 0.1}s` }}>
-            <div className="row-header">
-              <h2 className="row-title">{row.title}</h2>
-              <div className="row-divider" />
-              <button className="row-more">View All</button>
-            </div>
-            <div className="row-scroll">
-              {row.movies.map((movie, i) => (
-                <a
-                  key={movie.id}
-                  className="movie-card"
-                  href={movie.archive_url ?? "#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
+        <section className="movie-grid-section">
+          <div className="grid-heading">
+            <h2>{activeQuery.trim() ? "Search Results" : "Popular Right Now"}</h2>
+            <p>
+              Sort: {effectiveSort.sortBy} ({effectiveSort.sortDir})
+            </p>
+          </div>
+
+          <div className="movie-grid">
+            {movies.map((movie, i) => (
+              <article key={`${movie.source}:${movie.id}`} className={`movie-card ${movie.watched ? "movie-card-watched" : "movie-card-unwatched"}`}>
+                <button
+                  type="button"
+                  className="movie-poster"
+                  onClick={() => {
+                    openWatchPage(movie);
+                  }}
                 >
-                  <div className="movie-poster">
-                    {movie.thumbnail ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={movie.thumbnail} alt={movie.title} className="movie-poster-image" loading="lazy" />
-                    ) : (
-                      <div
-                        className="movie-poster-inner"
-                        style={{ background: POSTER_GRADIENTS[i % POSTER_GRADIENTS.length] }}
-                      >
-                        <p className="movie-poster-year">{movie.year}</p>
-                        <p className="movie-poster-num">{String(i + 1).padStart(2, "0")}</p>
-                      </div>
-                    )}
-                  </div>
-                  <p className="movie-title">{movie.title}</p>
-                  <p className="movie-info">{movie.creator ?? "Archive.org"} · {movie.year}</p>
-                </a>
-              ))}
-            </div>
-          </section>
-        ))}
+                  {movie.thumbnail ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={movie.thumbnail} alt={movie.title} className="movie-poster-image" loading="lazy" />
+                  ) : (
+                    <div className="movie-poster-inner" style={{ background: POSTER_GRADIENTS[i % POSTER_GRADIENTS.length] }}>
+                      <p className="movie-poster-year">{movie.year ?? "N/A"}</p>
+                      <p className="movie-poster-num">{String(i + 1).padStart(2, "0")}</p>
+                    </div>
+                  )}
+                  <span className={`watched-badge ${movie.watched ? "is-watched" : "is-unwatched"}`}>
+                    {movie.watched ? "Watched" : "Unwatched"}
+                  </span>
+                </button>
+                <p className="movie-title">{movie.title}</p>
+                <p className="movie-info">
+                  {movie.year ?? "N/A"} · IMDb {movie.imdb_rating?.toFixed(1) ?? "N/A"}
+                </p>
+                <div className="card-actions">
+                  <button className="row-more" onClick={() => handleToggleWatched(movie)}>
+                    Mark {movie.watched ? "Unwatched" : "Watched"}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <div ref={sentinelRef} className="scroll-sentinel" />
+          {isLoadingMore && <p className="search-status">Loading next page...</p>}
+        </section>
       </main>
 
-      {/* ── Footer ── */}
       <footer className="site-footer f5">
         <div className="footer-top">
           <div>
-            <p className="footer-brand metallic">LUMIÈRE</p>
+            <p className="footer-brand metallic">LUMIERE</p>
             <p className="footer-tagline">Pictures &amp; Entertainment</p>
           </div>
           <div className="footer-links">
@@ -313,8 +512,8 @@ export default function Home() {
           </div>
         </div>
         <div className="footer-bottom">
-          <p className="footer-copy">© MMXXV Lumière — All Rights Reserved</p>
-          <p className="footer-ornament">✦ &nbsp; Pictures &amp; Entertainment &nbsp; ✦</p>
+          <p className="footer-copy">© MMXXV Lumiere — All Rights Reserved</p>
+          <p className="footer-ornament">Pictures &amp; Entertainment</p>
         </div>
       </footer>
     </div>

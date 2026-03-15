@@ -25,6 +25,7 @@ async def list_comments(request: Request, db: AsyncSession = Depends(get_db)):
         {
             "id": row.Comment.id,
             "content": row.Comment.content,
+            "author_id": row.Comment.author_id,
             "author_username": row.author_username,
             "movie_id": row.Comment.movie_id,
             "created_at": row.Comment.created_at,
@@ -49,6 +50,7 @@ async def get_comment(comment_id: int, request: Request, db: AsyncSession = Depe
     return {
         "id": row.Comment.id,
         "content": row.Comment.content,
+        "author_id": row.Comment.author_id,
         "author_username": row.author_username,
         "movie_id": row.Comment.movie_id,
         "created_at": row.Comment.created_at,
@@ -111,6 +113,7 @@ async def create_comment(
     return {
         "id": comment.id,
         "content": comment.content,
+        "author_id": comment.author_id,
         "movie_id": comment.movie_id,
         "created_at": comment.created_at,
     }

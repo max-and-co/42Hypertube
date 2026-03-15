@@ -108,3 +108,16 @@ A README.md at the root explaining how to run the project with docker compose up
 5.  Check waiting services via health endpoints:
     *   **User Service**: [http://localhost:8080/api/users/health](http://localhost:8080/api/users/health)
     *   **Torrent Service**: [http://localhost:8080/api/torrent/health](http://localhost:8080/api/torrent/health)
+
+## Homepage/Search Behavior
+
+- Homepage without a search query shows popular external videos.
+- Search mode shows thumbnail results with infinite scrolling.
+- Cards display title, year (if available), IMDb rating (if available), and cover image.
+- Watched/unwatched state is stored per user and can be toggled from thumbnails.
+- Sort and filters are available for name, genre, IMDb rating, and production year.
+
+## OMDb Enrichment
+
+- Set `OMDB_API_KEY` in `.env` to enrich external results with IMDb rating/poster/year.
+- If the key is missing or invalid, the app still runs in degraded mode using source metadata only.

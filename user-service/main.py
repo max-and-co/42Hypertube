@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from sqlalchemy import text, select, func
 
 from auth import engine, async_session
+from db_init import run_startup_migrations
 from models import Base, Movie
 from routers import auth, oauth, users, movies, comments
 
@@ -72,6 +73,7 @@ async def lifespan(app: FastAPI):
                 await conn.execute(text("SELECT 1"))
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
+                await run_startup_migrations(conn)
             print("✅ Database connected & tables created successfully.")
             break
         except Exception as e:
