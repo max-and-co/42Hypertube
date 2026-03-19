@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import "./watch.css";
+import { useLanguage } from "../../../i18n/LanguageContext";
 
 type MovieDetails = {
   id: number;
@@ -70,6 +71,7 @@ export default function WatchPage() {
   const params = useParams<{ source: string; id: string }>();
   const query = useSearchParams();
   const router = useRouter();
+  const { t } = useLanguage();
 
   const source = useMemo(() => decodeURIComponent(params.source || ""), [params.source]);
   const externalId = useMemo(() => decodeURIComponent(params.id || ""), [params.id]);
@@ -170,12 +172,12 @@ export default function WatchPage() {
 
   useEffect(() => {
     if (!source || !externalId) {
-      setError("Invalid watch URL");
+      setError(t("watch.invalid-url"));
       setLoading(false);
       return;
     }
     bootstrap();
-  }, [bootstrap, externalId, source]);
+  }, [bootstrap, externalId, source, t]);
 
   useEffect(() => {
     if (!session?.session_id) return;
@@ -227,7 +229,7 @@ export default function WatchPage() {
       setCommentDraft("");
       await fetchComments(movieId);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to submit comment";
+      const message = err instanceof Error ? err.message : t("watch.failed-comment");
       setError(message);
     } finally {
       setCommentSubmitting(false);
@@ -242,12 +244,12 @@ export default function WatchPage() {
   return (
     <div className="watch-page">
       <header className="watch-header">
-        <button className="watch-back" onClick={() => router.push("/home")}>Back</button>
+        <button className="watch-back" onClick={() => router.push("/home")}>{t("back")}</button>
         <h1 className="watch-brand">LUMIERE</h1>
-        <button className="watch-logout" onClick={handleLogout}>Logout</button>
+        <button className="watch-logout" onClick={handleLogout}>{t("logout")}</button>
       </header>
 
-      {loading && <p className="watch-status">Preparing watch page...</p>}
+      {loading && <p className="watch-status">{t("watch.preparing")}</p>}
       {error && <p className="watch-status watch-status-error">{error}</p>}
 
       {!loading && movie && (
@@ -269,8 +271,8 @@ export default function WatchPage() {
               </video>
             ) : (
               <div className="watch-player watch-player-placeholder">
-                <p>Stream status: {session?.status || "queued"}</p>
-                {session?.error ? <p className="watch-status watch-status-error">{session.error}</p> : <p>Buffering video in background...</p>}
+                <p>{t("watch.stream-status")} {session?.status || "queued"}</p>
+                {session?.error ? <p className="watch-status watch-status-error">{session.error}</p> : <p>{t("watch.buffering")}</p>}
               </div>
             )}
           </section>
@@ -288,33 +290,33 @@ export default function WatchPage() {
             <div className="watch-meta">
               <h2>{movie.title}</h2>
               <p className="watch-meta-line">
-                {movie.year || "N/A"} · {movie.duration_minutes ? `${movie.duration_minutes} min` : "Duration unknown"} · IMDb {movie.imdb_rating || "N/A"}
+                {movie.year || "N/A"} · {movie.duration_minutes ? `${movie.duration_minutes} min` : t("watch.duration-unknown")} · IMDb {movie.imdb_rating || "N/A"}
               </p>
-              <p className="watch-meta-line">{(movie.genres || []).join(" · ") || "Genre unknown"}</p>
+              <p className="watch-meta-line">{(movie.genres || []).join(" · ") || t("watch.genre-unknown")}</p>
               {movie.description ? <p className="watch-summary">{movie.description}</p> : null}
-              <p className="watch-credit"><strong>Director:</strong> {movie.director || "Unknown"}</p>
-              <p className="watch-credit"><strong>Producer:</strong> {movie.producer || "Unknown"}</p>
-              <p className="watch-credit"><strong>Main Cast:</strong> {(movie.main_cast || []).join(", ") || "Unknown"}</p>
-              <p className="watch-credit"><strong>Subtitles:</strong> {(session?.subtitle_tracks || []).map((t) => t.label).join(", ") || "None detected yet"}</p>
+              <p className="watch-credit"><strong>{t("watch.director")}:</strong> {movie.director || t("watch.unknown")}</p>
+              <p className="watch-credit"><strong>{t("watch.producer")}:</strong> {movie.producer || t("watch.unknown")}</p>
+              <p className="watch-credit"><strong>{t("watch.cast")}:</strong> {(movie.main_cast || []).join(", ") || t("watch.unknown")}</p>
+              <p className="watch-credit"><strong>{t("watch.subtitles")}:</strong> {(session?.subtitle_tracks || []).map((tr) => tr.label).join(", ") || t("watch.none-detected")}</p>
             </div>
           </section>
 
           <section className="watch-comments-panel">
-            <h3>Comments</h3>
+            <h3>{t("watch.comments")}</h3>
             <form className="watch-comment-form" onSubmit={handleSubmitComment}>
               <textarea
                 value={commentDraft}
                 onChange={(e) => setCommentDraft(e.target.value)}
-                placeholder="Leave your thoughts on this movie"
+                placeholder={t("watch.comment-placeholder")}
                 rows={3}
               />
               <button type="submit" disabled={commentSubmitting || !commentDraft.trim()}>
-                {commentSubmitting ? "Posting..." : "Post Comment"}
+                {commentSubmitting ? t("watch.posting") : t("watch.post")}
               </button>
             </form>
 
             <div className="watch-comment-list">
-              {comments.length === 0 ? <p className="watch-empty">No comments yet.</p> : null}
+              {comments.length === 0 ? <p className="watch-empty">{t("watch.no-comments")}</p> : null}
               {comments.map((comment) => (
                 <article key={comment.id} className="watch-comment">
                   <p className="watch-comment-author">{comment.author_username}</p>

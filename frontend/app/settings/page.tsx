@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import "./settings.css";
+import { useLanguage } from "../i18n/LanguageContext";
+import type { Lang } from "../i18n/translations";
 
 const LANGUAGES = [
   { code: "en", label: "English" },
@@ -39,6 +41,7 @@ interface PublicProfile {
 }
 
 export default function Settings() {
+  const { setLang, t } = useLanguage();
   const [user, setUser] = useState<UserData | null>(null);
 
   const [firstName, setFirstName] = useState("");
@@ -76,9 +79,11 @@ export default function Settings() {
       setLastName(data.last_name);
       setUsername(data.username);
       setEmail(data.email);
-      setLanguage(data.preferred_language);
+      const preferred = ["en", "fr", "es"].includes(data.preferred_language) ? data.preferred_language : "en";
+      setLanguage(preferred);
+      setLang(preferred as Lang);
     });
-  }, [router]);
+  }, [router, setLang]);
 
   const handleProfileSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,13 +99,14 @@ export default function Settings() {
       if (res.ok) {
         const updated: UserData = await res.json();
         setUser(updated);
-        setProfileSuccess("Profile updated successfully");
+        setProfileSuccess(t("settings.saved"));
+        setLang(language as Lang);
       } else {
         const data = await res.json();
-        setProfileError(data.detail || "Update failed");
+        setProfileError(data.detail || t("settings.update-failed"));
       }
     } catch {
-      setProfileError("An error occurred");
+      setProfileError(t("error.generic"));
     } finally {
       setSaving(false);
     }
@@ -119,10 +125,10 @@ export default function Settings() {
         setUser((prev) => prev ? { ...prev, profile_picture: data.profile_picture } : prev);
       } else {
         const data = await res.json();
-        setAvatarError(data.detail || "Upload failed");
+        setAvatarError(data.detail || t("settings.upload-failed"));
       }
     } catch {
-      setAvatarError("An error occurred during upload");
+      setAvatarError(t("settings.upload-error"));
     }
   };
 
@@ -180,7 +186,7 @@ export default function Settings() {
           <hr className="divider f3" />
         </div>
 
-        <p className="section-label f3">— Member Settings —</p>
+        <p className="section-label f3">{t("settings.section")}</p>
 
         {/* Avatar */}
         <div className="avatar-section f3">
@@ -198,7 +204,7 @@ export default function Settings() {
             )}
           </div>
           <button className="avatar-upload-btn" onClick={() => fileInputRef.current?.click()} type="button">
-            Change Portrait
+            {t("settings.change-portrait")}
           </button>
           <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarChange} />
           {avatarError && <p className="error-msg" style={{ marginTop: "12px", marginBottom: 0 }}>⚠ {avatarError}</p>}
@@ -207,7 +213,7 @@ export default function Settings() {
         <hr className="section-divider" />
 
         {/* Profile form */}
-        <p className="section-label f4">— Personal Information —</p>
+        <p className="section-label f4">{t("settings.personal")}</p>
 
         {profileError && <p className="error-msg">⚠ {profileError}</p>}
         {profileSuccess && <p className="success-msg">✓ {profileSuccess}</p>}
@@ -215,24 +221,24 @@ export default function Settings() {
         <form onSubmit={handleProfileSave} className="settings-form f4">
           <div className="field-row">
             <div className="field">
-              <label className="field-label">First Name</label>
-              <input type="text" className="field-input" placeholder="FIRST" value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
+              <label className="field-label">{t("settings.first-name")}</label>
+              <input type="text" className="field-input" placeholder={t("settings.first-placeholder")} value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
             </div>
             <div className="field">
-              <label className="field-label">Last Name</label>
-              <input type="text" className="field-input" placeholder="LAST" value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+              <label className="field-label">{t("settings.last-name")}</label>
+              <input type="text" className="field-input" placeholder={t("settings.last-placeholder")} value={lastName} onChange={(e) => setLastName(e.target.value)} required />
             </div>
           </div>
           <div className="field">
-            <label className="field-label">Username</label>
-            <input type="text" className="field-input" placeholder="YOUR HANDLE" value={username} onChange={(e) => setUsername(e.target.value)} required />
+            <label className="field-label">{t("settings.username")}</label>
+            <input type="text" className="field-input" placeholder={t("settings.username-placeholder")} value={username} onChange={(e) => setUsername(e.target.value)} required />
           </div>
           <div className="field">
-            <label className="field-label">Electronic Mail</label>
-            <input type="email" className="field-input" placeholder="YOUR ADDRESS" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <label className="field-label">{t("settings.email")}</label>
+            <input type="email" className="field-input" placeholder={t("settings.email-placeholder")} value={email} onChange={(e) => setEmail(e.target.value)} required />
           </div>
           <div className="field">
-            <label className="field-label">Preferred Language</label>
+            <label className="field-label">{t("settings.lang")}</label>
             <select className="field-input field-select" value={language} onChange={(e) => setLanguage(e.target.value)}>
               {LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>{l.label}</option>
@@ -241,7 +247,7 @@ export default function Settings() {
           </div>
           <div className="f5">
             <button type="submit" className="submit-btn" disabled={saving}>
-              {saving ? "Saving…" : "Save Changes"}
+              {saving ? t("settings.saving") : t("settings.save")}
             </button>
           </div>
         </form>
@@ -249,7 +255,7 @@ export default function Settings() {
         <hr className="section-divider" />
 
         {/* Member search */}
-        <p className="section-label f5">— Find a Member —</p>
+        <p className="section-label f5">{t("settings.find-member")}</p>
 
         <div className="search-section f5">
           <div className="search-wrap">
@@ -260,7 +266,7 @@ export default function Settings() {
             <input
               type="text"
               className="search-input"
-              placeholder="SEARCH BY USERNAME"
+              placeholder={t("settings.search-placeholder")}
               value={searchQuery}
               onChange={handleSearchChange}
               autoComplete="off"
@@ -288,7 +294,7 @@ export default function Settings() {
               <p className="profile-fullname">{selectedProfile.first_name} {selectedProfile.last_name}</p>
               <p className="profile-username">@{selectedProfile.username}</p>
               <div className="profile-meta">
-                <span className="profile-meta-label">Language</span>
+                <span className="profile-meta-label">{t("settings.language-label")}</span>
                 <span className="profile-meta-value">{LANG_LABELS[selectedProfile.preferred_language] ?? selectedProfile.preferred_language}</span>
               </div>
             </div>
@@ -320,19 +326,19 @@ export default function Settings() {
           )}
 
           {!selectedProfile && searchQuery.length >= 2 && !searching && searchResults.length === 0 && (
-            <p className="search-empty">No members found</p>
+            <p className="search-empty">{t("settings.no-members")}</p>
           )}
         </div>
 
         <div className="back-link-wrap f6">
-          <Link href="/home" className="back-link">← Return to Home</Link>
+          <Link href="/home" className="back-link">{t("settings.return-home")}</Link>
           <button className="logout-btn" onClick={handleLogout}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
               <polyline points="16 17 21 12 16 7" />
               <line x1="21" y1="12" x2="9" y2="12" />
             </svg>
-            Logout
+            {t("logout")}
           </button>
         </div>
       </div>

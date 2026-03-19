@@ -3,11 +3,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import "./forgot-password.css";
+import { useLanguage } from "../i18n/LanguageContext";
 
 export default function ForgotPassword() {
   const [email, setEmail]     = useState("");
   const [error, setError]     = useState("");
   const [success, setSuccess] = useState(false);
+  const { t } = useLanguage();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,10 +24,10 @@ export default function ForgotPassword() {
         setSuccess(true);
       } else {
         const data = await res.json();
-        setError(data.detail || "Request failed");
+        setError(data.detail || t("forgot.failed"));
       }
     } catch {
-      setError("An error occurred");
+      setError(t("error.generic"));
     }
   };
 
@@ -48,27 +50,27 @@ export default function ForgotPassword() {
           <hr className="divider f3" />
         </div>
 
-        <p className="section-label f3">— Passphrase Recovery —</p>
+        <p className="section-label f3">{t("forgot.section")}</p>
 
         {error && <p className="error-msg">⚠ {error}</p>}
 
         {success ? (
           <div className="success-box f4">
             <p className="success-msg">
-              If this address is registered, a recovery link has been dispatched.
+              {t("forgot.success")}
             </p>
             <p className="success-sub">
-              Please inspect your correspondence.
+              {t("forgot.success-sub")}
             </p>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="forgot-form">
             <div className="field f4">
-              <label className="field-label">Electronic Mail</label>
+              <label className="field-label">{t("forgot.email")}</label>
               <input
                 type="email"
                 className="field-input"
-                placeholder="YOUR ADDRESS"
+                placeholder={t("forgot.email-placeholder")}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
@@ -77,7 +79,7 @@ export default function ForgotPassword() {
 
             <div className="f5">
               <button type="submit" className="submit-btn">
-                Dispatch Recovery Link
+                {t("forgot.submit")}
               </button>
             </div>
           </form>
@@ -87,7 +89,7 @@ export default function ForgotPassword() {
 
         <p className="back-text f6">
           <Link href="/login" className="back-link">
-            ← Return to Entrance
+            {t("forgot.return")}
           </Link>
         </p>
       </div>

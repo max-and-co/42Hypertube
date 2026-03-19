@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import "./reset-password.css";
+import { useLanguage } from "../i18n/LanguageContext";
 
 function ResetPasswordForm() {
   const [password, setPassword]   = useState("");
@@ -13,26 +14,27 @@ function ResetPasswordForm() {
   const [token, setToken]         = useState("");
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { t } = useLanguage();
 
   useEffect(() => {
-    const t = searchParams.get("token");
-    if (!t) {
-      setError("Invalid reset link. Please request a new one.");
+    const tk = searchParams.get("token");
+    if (!tk) {
+      setError(t("reset.invalid"));
     } else {
-      setToken(t);
+      setToken(tk);
     }
-  }, [searchParams]);
+  }, [searchParams, t]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
     if (password !== confirm) {
-      setError("Passphrases do not match");
+      setError(t("reset.mismatch"));
       return;
     }
     if (password.length < 8) {
-      setError("Passphrase must be at least 8 characters");
+      setError(t("reset.too-short"));
       return;
     }
 
@@ -47,10 +49,10 @@ function ResetPasswordForm() {
         setTimeout(() => router.push("/login"), 3000);
       } else {
         const data = await res.json();
-        setError(data.detail || "Reset failed");
+        setError(data.detail || t("reset.failed"));
       }
     } catch {
-      setError("An error occurred");
+      setError(t("error.generic"));
     }
   };
 
@@ -73,23 +75,23 @@ function ResetPasswordForm() {
           <hr className="divider f3" />
         </div>
 
-        <p className="section-label f3">— Set New Passphrase —</p>
+        <p className="section-label f3">{t("reset.section")}</p>
 
         {error && <p className="error-msg">⚠ {error}</p>}
 
         {success ? (
           <div className="success-box f4">
             <p className="success-msg">
-              Your passphrase has been changed.
+              {t("reset.success")}
             </p>
             <p className="success-sub">
-              Redirecting to the entrance…
+              {t("reset.success-sub")}
             </p>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="reset-form">
             <div className="field f4">
-              <label className="field-label">New Passphrase</label>
+              <label className="field-label">{t("reset.new")}</label>
               <input
                 type="password"
                 className="field-input"
@@ -102,7 +104,7 @@ function ResetPasswordForm() {
             </div>
 
             <div className="field f5">
-              <label className="field-label">Confirm Passphrase</label>
+              <label className="field-label">{t("reset.confirm")}</label>
               <input
                 type="password"
                 className="field-input"
@@ -116,7 +118,7 @@ function ResetPasswordForm() {
 
             <div className="f6">
               <button type="submit" className="submit-btn" disabled={!token}>
-                Confirm New Passphrase
+                {t("reset.submit")}
               </button>
             </div>
           </form>
@@ -126,7 +128,7 @@ function ResetPasswordForm() {
 
         <p className="back-text f6">
           <Link href="/login" className="back-link">
-            ← Return to Entrance
+            {t("reset.return")}
           </Link>
         </p>
       </div>

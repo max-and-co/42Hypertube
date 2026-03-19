@@ -4,24 +4,24 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import "./login.css";
+import { useLanguage } from "../i18n/LanguageContext";
 
 export default function Login() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword]     = useState("");
   const [error, setError]           = useState("");
   const router = useRouter();
+  const { t } = useLanguage();
 
   useEffect(() => {
-    // If already authenticated, skip to home
     fetch("/api/users/me").then((res) => {
       if (res.ok) router.replace("/home");
     });
-    // Check for OAuth error param
     const params = new URLSearchParams(window.location.search);
     if (params.get("error") === "oauth_failed") {
-      setError("OAuth authentication failed. Please try again.");
+      setError(t("login.oauth-failed"));
     }
-  }, [router]);
+  }, [router, t]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,10 +36,10 @@ export default function Login() {
         router.push("/home");
       } else {
         const data = await res.json();
-        setError(data.detail || "Login failed");
+        setError(data.detail || t("login.failed"));
       }
     } catch {
-      setError("An error occurred");
+      setError(t("error.generic"));
     }
   };
 
@@ -62,17 +62,17 @@ export default function Login() {
           <hr className="divider f3" />
         </div>
 
-        <p className="section-label f3">— Member Entrance —</p>
+        <p className="section-label f3">{t("login.section")}</p>
 
         {error && <p className="error-msg">⚠ {error}</p>}
 
         <form onSubmit={handleLogin} className="login-form">
           <div className="field f4">
-            <label className="field-label">Username or Email</label>
+            <label className="field-label">{t("login.username-label")}</label>
             <input
               type="text"
               className="field-input"
-              placeholder="YOUR HANDLE OR ADDRESS"
+              placeholder={t("login.username-placeholder")}
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
               required
@@ -80,7 +80,7 @@ export default function Login() {
           </div>
 
           <div className="field f5">
-            <label className="field-label">Secret Passphrase</label>
+            <label className="field-label">{t("login.password-label")}</label>
             <input
               type="password"
               className="field-input"
@@ -93,20 +93,20 @@ export default function Login() {
 
           <div className="forgot-row f5">
             <Link href="/forgot-password" className="forgot-link">
-              Forgot passphrase?
+              {t("login.forgot")}
             </Link>
           </div>
 
           <div className="f6">
             <button type="submit" className="submit-btn">
-              Enter the Theatre
+              {t("login.submit")}
             </button>
           </div>
         </form>
 
         <hr className="divider oauth-divider f6" />
 
-        <p className="oauth-label f6">— Or enter via —</p>
+        <p className="oauth-label f6">{t("login.oauth-label")}</p>
 
         <div className="oauth-buttons f6">
           <a href="/api/oauth/42/login" className="oauth-btn">
@@ -120,9 +120,9 @@ export default function Login() {
         <hr className="divider footer-divider" />
 
         <p className="register-text f6">
-          No Membership?{" "}
+          {t("login.no-membership")}{" "}
           <Link href="/register" className="register-link">
-            Enrol Here
+            {t("login.enrol")}
           </Link>
         </p>
       </div>

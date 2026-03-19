@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import "./register.css";
+import { useLanguage } from "../i18n/LanguageContext";
+import type { Lang } from "../i18n/translations";
 
 const LANGUAGES = [
   { code: "en", label: "English" },
@@ -21,6 +23,7 @@ export default function Register() {
   const [language, setLanguage]     = useState("en");
   const [error, setError]           = useState("");
   const router = useRouter();
+  const { t, setLang } = useLanguage();
 
   useEffect(() => {
     fetch("/api/users/me").then((res) => {
@@ -33,11 +36,11 @@ export default function Register() {
     setError("");
 
     if (password !== confirm) {
-      setError("Passphrases do not match");
+      setError(t("register.mismatch"));
       return;
     }
     if (password.length < 8) {
-      setError("Passphrase must be at least 8 characters");
+      setError(t("register.too-short"));
       return;
     }
 
@@ -59,10 +62,10 @@ export default function Register() {
         router.push("/login");
       } else {
         const data = await res.json();
-        setError(data.detail || "Registration failed");
+        setError(data.detail || t("register.failed"));
       }
     } catch {
-      setError("An error occurred");
+      setError(t("error.generic"));
     }
   };
 
@@ -85,29 +88,29 @@ export default function Register() {
           <hr className="divider f3" />
         </div>
 
-        <p className="section-label f3">— New Membership —</p>
+        <p className="section-label f3">{t("register.section")}</p>
 
         {error && <p className="error-msg">⚠ {error}</p>}
 
         <form onSubmit={handleRegister} className="register-form">
           <div className="field-row f3">
             <div className="field">
-              <label className="field-label">First Name</label>
+              <label className="field-label">{t("register.first-name")}</label>
               <input
                 type="text"
                 className="field-input"
-                placeholder="FIRST"
+                placeholder={t("register.first-placeholder")}
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
                 required
               />
             </div>
             <div className="field">
-              <label className="field-label">Last Name</label>
+              <label className="field-label">{t("register.last-name")}</label>
               <input
                 type="text"
                 className="field-input"
-                placeholder="LAST"
+                placeholder={t("register.last-placeholder")}
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
                 required
@@ -116,11 +119,11 @@ export default function Register() {
           </div>
 
           <div className="field f4">
-            <label className="field-label">Username</label>
+            <label className="field-label">{t("register.username")}</label>
             <input
               type="text"
               className="field-input"
-              placeholder="YOUR HANDLE"
+              placeholder={t("register.username-placeholder")}
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               required
@@ -128,11 +131,11 @@ export default function Register() {
           </div>
 
           <div className="field f4">
-            <label className="field-label">Electronic Mail</label>
+            <label className="field-label">{t("register.email")}</label>
             <input
               type="email"
               className="field-input"
-              placeholder="YOUR ADDRESS"
+              placeholder={t("register.email-placeholder")}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
@@ -140,7 +143,7 @@ export default function Register() {
           </div>
 
           <div className="field f5">
-            <label className="field-label">Secret Passphrase</label>
+            <label className="field-label">{t("register.password")}</label>
             <input
               type="password"
               className="field-input"
@@ -152,7 +155,7 @@ export default function Register() {
           </div>
 
           <div className="field f5">
-            <label className="field-label">Confirm Passphrase</label>
+            <label className="field-label">{t("register.confirm")}</label>
             <input
               type="password"
               className="field-input"
@@ -164,11 +167,14 @@ export default function Register() {
           </div>
 
           <div className="field f5">
-            <label className="field-label">Preferred Language</label>
+            <label className="field-label">{t("register.lang")}</label>
             <select
               className="field-input field-select"
               value={language}
-              onChange={(e) => setLanguage(e.target.value)}
+              onChange={(e) => {
+                setLanguage(e.target.value);
+                setLang(e.target.value as Lang);
+              }}
             >
               {LANGUAGES.map((l) => (
                 <option key={l.code} value={l.code}>
@@ -180,7 +186,7 @@ export default function Register() {
 
           <div className="f6">
             <button type="submit" className="submit-btn">
-              Join the Company
+              {t("register.submit")}
             </button>
           </div>
         </form>
@@ -188,9 +194,9 @@ export default function Register() {
         <hr className="divider footer-divider" />
 
         <p className="login-text f6">
-          Already a Member?{" "}
+          {t("register.already")}{" "}
           <Link href="/login" className="login-link">
-            Sign In
+            {t("register.signin")}
           </Link>
         </p>
       </div>

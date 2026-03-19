@@ -3,12 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import "./home.css";
-
-const LANGUAGES = [
-  { value: "en", label: "English" },
-  { value: "fr", label: "Français" },
-  { value: "es", label: "Español" },
-];
+import { useLanguage } from "../i18n/LanguageContext";
+import type { Lang } from "../i18n/translations";
 
 type DiscoverMovie = {
   id: string;
@@ -47,10 +43,11 @@ const POSTER_GRADIENTS = [
 ];
 
 export default function Home() {
+  const { lang, setLang, t } = useLanguage();
+
   const [username, setUsername] = useState("");
   const [profilePicture, setProfilePicture] = useState<string | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [language, setLanguage] = useState("en");
 
   const [searchInput, setSearchInput] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
@@ -154,9 +151,12 @@ export default function Home() {
       const data = await res.json();
       setUsername(data.username);
       setProfilePicture(data.profile_picture ?? null);
+      if (data.preferred_language === "fr" || data.preferred_language === "en" || data.preferred_language === "es") {
+        setLang(data.preferred_language as Lang);
+      }
       setIsAuthReady(true);
     });
-  }, [router]);
+  }, [router, setLang]);
 
   useEffect(() => {
     if (!isAuthReady) return;
@@ -265,7 +265,7 @@ export default function Home() {
             onKeyDown={(e) => {
               if (e.key === "Enter") handleSearch();
             }}
-            placeholder="Search movies..."
+            placeholder={t("home.search-placeholder")}
           />
           <button className="search-btn" aria-label="Search" onClick={handleSearch}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -276,7 +276,7 @@ export default function Home() {
         </div>
 
         <div className="header-right">
-          <button className="header-logout-btn" onClick={handleLogout}>Logout</button>
+          <button className="header-logout-btn" onClick={handleLogout}>{t("logout")}</button>
           <div className="header-user" ref={dropdownRef}>
             <button
               className={`user-btn${profilePicture ? " user-btn-avatar" : ""}`}
@@ -311,7 +311,7 @@ export default function Home() {
                     <circle cx="12" cy="12" r="3" />
                     <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
                   </svg>
-                  Settings
+                  {t("settings")}
                 </a>
 
                 <div className="lang-item">
@@ -319,13 +319,11 @@ export default function Home() {
                     <circle cx="12" cy="12" r="10" />
                     <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                   </svg>
-                  <span className="lang-label">Lang</span>
-                  <select className="lang-select" value={language} onChange={(e) => setLanguage(e.target.value)}>
-                    {LANGUAGES.map((l) => (
-                      <option key={l.value} value={l.value}>
-                        {l.label}
-                      </option>
-                    ))}
+                  <span className="lang-label">{t("lang")}</span>
+                  <select className="lang-select" value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
+                    <option value="en">English</option>
+                    <option value="fr">Français</option>
+                    <option value="es">Español</option>
                   </select>
                 </div>
               </div>
@@ -344,16 +342,16 @@ export default function Home() {
         </div>
         <div className="hero-overlay" />
         <div className="hero-content">
-          <p className="hero-eyebrow">Featured Selection</p>
-          <h1 className="hero-title metallic">{heroMovie?.title ?? "Most Popular Videos"}</h1>
+          <p className="hero-eyebrow">{t("home.featured")}</p>
+          <h1 className="hero-title metallic">{heroMovie?.title ?? t("home.popular-title")}</h1>
           <p className="hero-meta">
             {heroMovie?.year ?? "N/A"}
             {heroMovie?.imdb_rating ? `  ·  IMDb ${heroMovie.imdb_rating.toFixed(1)}` : ""}
           </p>
           <p className="hero-desc">
             {activeQuery.trim()
-              ? `Search results for "${activeQuery}" sorted by ${effectiveSort.sortBy}.`
-              : "No search selected. Showing popular videos from external sources."}
+              ? `${t("home.search-results")} — "${activeQuery}"`
+              : t("home.no-search-desc")}
           </p>
           <div className="hero-actions">
             <button
@@ -364,10 +362,10 @@ export default function Home() {
                 }
               }}
             >
-              Watch Now
+              {t("home.watch-now")}
             </button>
             <button className="hero-btn hero-btn-secondary" onClick={() => fetchMovies(1, true)}>
-              Refresh
+              {t("home.refresh")}
             </button>
           </div>
         </div>
@@ -377,57 +375,57 @@ export default function Home() {
         <section className="filters-panel f3">
           <div className="filters-grid">
             <label className="filter-field">
-              <span>Sort</span>
+              <span>{t("home.sort")}</span>
               <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-                <option value="downloads">Popularity</option>
-                <option value="title">Name</option>
-                <option value="imdb_rating">IMDb</option>
-                <option value="year">Year</option>
-                <option value="seeders">Seeders</option>
-                <option value="peers">Peers</option>
+                <option value="downloads">{t("home.sort-popularity")}</option>
+                <option value="title">{t("home.sort-name")}</option>
+                <option value="imdb_rating">{t("home.sort-imdb")}</option>
+                <option value="year">{t("home.sort-year")}</option>
+                <option value="seeders">{t("home.sort-seeders")}</option>
+                <option value="peers">{t("home.sort-peers")}</option>
               </select>
             </label>
             <label className="filter-field">
-              <span>Direction</span>
+              <span>{t("home.direction")}</span>
               <select value={sortDir} onChange={(e) => setSortDir(e.target.value)}>
-                <option value="desc">Desc</option>
-                <option value="asc">Asc</option>
+                <option value="desc">{t("home.desc")}</option>
+                <option value="asc">{t("home.asc")}</option>
               </select>
             </label>
             <label className="filter-field">
-              <span>Genre</span>
+              <span>{t("home.genre")}</span>
               <input value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="Drama" />
             </label>
             <label className="filter-field">
-              <span>Year Min</span>
+              <span>{t("home.year-min")}</span>
               <input value={yearMin} onChange={(e) => setYearMin(e.target.value)} inputMode="numeric" placeholder="1990" />
             </label>
             <label className="filter-field">
-              <span>Year Max</span>
+              <span>{t("home.year-max")}</span>
               <input value={yearMax} onChange={(e) => setYearMax(e.target.value)} inputMode="numeric" placeholder="2026" />
             </label>
             <label className="filter-field">
-              <span>IMDb Min</span>
+              <span>{t("home.imdb-min")}</span>
               <input value={imdbMin} onChange={(e) => setImdbMin(e.target.value)} inputMode="decimal" placeholder="7.5" />
             </label>
           </div>
           <div className="filters-actions">
-            <button className="row-more" onClick={() => setActiveQuery(searchInput.trim())}>Apply</button>
-            <button className="row-more" onClick={handleClearFilters}>Reset</button>
+            <button className="row-more" onClick={() => setActiveQuery(searchInput.trim())}>{t("home.apply")}</button>
+            <button className="row-more" onClick={handleClearFilters}>{t("home.reset-filters")}</button>
           </div>
         </section>
 
-        {isLoadingInitial && <p className="search-status">Loading catalog...</p>}
+        {isLoadingInitial && <p className="search-status">{t("home.loading")}</p>}
         {searchError && <p className="search-status search-status-error">{searchError}</p>}
         {!isLoadingInitial && !searchError && movies.length === 0 && (
-          <p className="search-status">No results match your criteria.</p>
+          <p className="search-status">{t("home.no-results")}</p>
         )}
 
         <section className="movie-grid-section">
           <div className="grid-heading">
-            <h2>{activeQuery.trim() ? "Search Results" : "Popular Right Now"}</h2>
+            <h2>{activeQuery.trim() ? t("home.search-results") : t("home.popular-now")}</h2>
             <p>
-              Sort: {effectiveSort.sortBy} ({effectiveSort.sortDir})
+              {t("home.sort-label")} {effectiveSort.sortBy} ({effectiveSort.sortDir})
             </p>
           </div>
 
@@ -451,7 +449,7 @@ export default function Home() {
                     </div>
                   )}
                   <span className={`watched-badge ${movie.watched ? "is-watched" : "is-unwatched"}`}>
-                    {movie.watched ? "Watched" : "Unwatched"}
+                    {movie.watched ? t("home.watched") : t("home.unwatched")}
                   </span>
                 </button>
                 <p className="movie-title">{movie.title}</p>
@@ -460,7 +458,7 @@ export default function Home() {
                 </p>
                 <div className="card-actions">
                   <button className="row-more" onClick={() => handleToggleWatched(movie)}>
-                    Mark {movie.watched ? "Unwatched" : "Watched"}
+                    {movie.watched ? t("home.mark-unwatched") : t("home.mark-watched")}
                   </button>
                 </div>
               </article>
@@ -468,7 +466,7 @@ export default function Home() {
           </div>
 
           <div ref={sentinelRef} className="scroll-sentinel" />
-          {isLoadingMore && <p className="search-status">Loading next page...</p>}
+          {isLoadingMore && <p className="search-status">{t("home.loading-more")}</p>}
         </section>
       </main>
 
@@ -480,33 +478,33 @@ export default function Home() {
           </div>
           <div className="footer-links">
             <div>
-              <p className="footer-col-title">Discover</p>
+              <p className="footer-col-title">{t("home.discover")}</p>
               <div className="footer-col-links">
-                <a href="#" className="footer-link">Browse All</a>
-                <a href="#" className="footer-link">New Releases</a>
-                <a href="#" className="footer-link">Classics</a>
+                <a href="#" className="footer-link">{t("home.browse-all")}</a>
+                <a href="#" className="footer-link">{t("home.new-releases")}</a>
+                <a href="#" className="footer-link">{t("home.classics")}</a>
               </div>
             </div>
             <div>
-              <p className="footer-col-title">Account</p>
+              <p className="footer-col-title">{t("home.account")}</p>
               <div className="footer-col-links">
-                <a href="/settings" className="footer-link">Settings</a>
-                <a href="#" className="footer-link">Watch History</a>
-                <a href="#" className="footer-link">Favourites</a>
+                <a href="/settings" className="footer-link">{t("settings")}</a>
+                <a href="#" className="footer-link">{t("home.watch-history")}</a>
+                <a href="#" className="footer-link">{t("home.favourites")}</a>
               </div>
             </div>
             <div>
-              <p className="footer-col-title">Legal</p>
+              <p className="footer-col-title">{t("home.legal")}</p>
               <div className="footer-col-links">
-                <a href="#" className="footer-link">Privacy</a>
-                <a href="#" className="footer-link">Terms</a>
-                <a href="#" className="footer-link">Contact</a>
+                <a href="#" className="footer-link">{t("home.privacy")}</a>
+                <a href="#" className="footer-link">{t("home.terms")}</a>
+                <a href="#" className="footer-link">{t("home.contact")}</a>
               </div>
             </div>
           </div>
         </div>
         <div className="footer-bottom">
-          <p className="footer-copy">© MMXXV Lumiere — All Rights Reserved</p>
+          <p className="footer-copy">{t("home.copyright")}</p>
           <p className="footer-ornament">Pictures &amp; Entertainment</p>
         </div>
       </footer>
