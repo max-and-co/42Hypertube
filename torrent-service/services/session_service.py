@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,9 @@ except Exception:  # pragma: no cover - optional dependency at runtime
     lt = None
 
 
+logger = logging.getLogger(__name__)
+
+
 async def _download_subtitle(url: str, target_path: Path) -> bool:
     try:
         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -36,10 +40,12 @@ async def _download_subtitle(url: str, target_path: Path) -> bool:
             target_path.write_bytes(response.content)
         return True
     except Exception:
+        logger.exception("Failed to download subtitle", extra={"url": url, "target_path": str(target_path)})
         return False
 
 
 async def _prepare_archive_session(session_id: str, external_id: str) -> None:
+    logger.info("Preparing archive stream session", extra={"session_id": session_id, "external_id": external_id})
     async with runtime_state.STREAM_LOCK:
         session = runtime_state.STREAM_SESSIONS[session_id]
         user_id = int(session.get("user_id") or 0)
@@ -153,6 +159,7 @@ async def _prepare_archive_session(session_id: str, external_id: str) -> None:
 
 
 async def _prepare_torrent_session(session_id: str, torrent_hash: str | None) -> None:
+    logger.info("Preparing torrent stream session", extra={"session_id": session_id})
     async with runtime_state.STREAM_LOCK:
         session = runtime_state.STREAM_SESSIONS[session_id]
         movie_id = int(session.get("movie_id") or 0)
@@ -210,7 +217,6 @@ async def _prepare_torrent_session(session_id: str, torrent_hash: str | None) ->
 
     magnet_uri = f"magnet:?xt=urn:btih:{torrent_hash}&dn={quote(title)}"
     lt_session = lt.session()  # type: ignore[union-attr]
-    lt_session.listen_on(6881, 6891)
     params = {
         "save_path": str(target_dir),
         "storage_mode": lt.storage_mode_t.storage_mode_sparse,  # type: ignore[union-attr]
@@ -315,10 +321,17 @@ async def _prepare_torrent_session(session_id: str, torrent_hash: str | None) ->
                         "-movflags",
                         "+faststart",
                         str(transcoded),
-                        stdout=asyncio.subprocess.DEVNULL,
-                        stderr=asyncio.subprocess.DEVNULL,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
                     )
-                    await process.wait()
+                    stdout, stderr = await process.communicate()
+                    if process.returncode != 0:
+                        stdout_tail = (stdout or b"").decode(errors="ignore")[-800:]
+                        stderr_tail = (stderr or b"").decode(errors="ignore")[-800:]
+                        raise RuntimeError(
+                            "ffmpeg failed while transcoding mkv to mp4 "
+                            f"(code={process.returncode}, stdout_tail={stdout_tail!r}, stderr_tail={stderr_tail!r})"
+                        )
 
                 if transcoded.exists() and transcoded.stat().st_size > BUFFER_READY_BYTES:
                     stream_file = transcoded
@@ -374,6 +387,7 @@ async def _prepare_stream_session(session_id: str) -> None:
 
         raise RuntimeError(f"Unsupported source '{source}'")
     except Exception as exc:
+        logger.exception("Stream session failed", extra={"session_id": session_id})
         async with runtime_state.STREAM_LOCK:
             session = runtime_state.STREAM_SESSIONS.get(session_id)
             if session is not None:
@@ -428,6 +442,16 @@ async def create_stream_session(payload: StreamSessionCreate, user_id: int) -> d
 
     task = asyncio.create_task(_prepare_stream_session(session_id))
     runtime_state.TORRENT_RUNNERS[session_id] = task
+    logger.info(
+        "Created stream session",
+        extra={
+            "session_id": session_id,
+            "movie_id": payload.movie_id,
+            "source": source,
+            "external_id": external_id,
+            "user_id": user_id,
+        },
+    )
     return session
 
 

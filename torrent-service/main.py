@@ -1,4 +1,5 @@
 from pathlib import Path
+import logging
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
@@ -15,6 +16,12 @@ from services.session_service import (
     get_stream_target,
     get_subtitle_local_path,
     list_subtitles,
+)
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 
 app = FastAPI(lifespan=lifespan, root_path="/api/torrent")
