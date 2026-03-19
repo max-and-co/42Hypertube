@@ -245,6 +245,27 @@
 .dropdown-logout { color: #a04040; }
 .dropdown-logout:hover { background: #0f0808; color: #e05050; }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: auto;
+}
+
+.header-logout-btn {
+  background: transparent;
+  border: none;
+  color: #a04040;
+  font-family: 'Cinzel', serif;
+  font-size: .65rem;
+  letter-spacing: .25em;
+  text-transform: uppercase;
+  padding: 0;
+  cursor: pointer;
+  transition: color .3s;
+}
+.header-logout-btn:hover { color: #e05050; }
+
 .hero {
   position: relative;
   height: 460px;

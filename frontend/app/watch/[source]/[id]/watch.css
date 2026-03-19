@@ -38,6 +38,20 @@
   margin: 0;
 }
 
+.watch-logout {
+  background: transparent;
+  border: none;
+  color: #a04040;
+  font-family: 'Cinzel', serif;
+  font-size: 0.65rem;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.3s;
+}
+.watch-logout:hover { color: #e05050; }
+
 .watch-status {
   margin: 22px auto 0;
   width: min(1100px, calc(100% - 36px));

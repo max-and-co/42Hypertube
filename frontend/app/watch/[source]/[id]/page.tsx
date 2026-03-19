@@ -234,11 +234,17 @@ export default function WatchPage() {
     }
   };
 
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.replace("/login");
+  };
+
   return (
     <div className="watch-page">
       <header className="watch-header">
         <button className="watch-back" onClick={() => router.push("/home")}>Back</button>
         <h1 className="watch-brand">LUMIERE</h1>
+        <button className="watch-logout" onClick={handleLogout}>Logout</button>
       </header>
 
       {loading && <p className="watch-status">Preparing watch page...</p>}
