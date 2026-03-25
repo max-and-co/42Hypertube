@@ -11,8 +11,36 @@ from config import (
     OMDB_API_KEY,
     OMDB_BASE_URL,
     YTS_LIST_MOVIES_URL,
+    YTS_LIST_MOVIES_FALLBACK_URLS,
 )
 from services.common import as_float, as_int, as_text, as_text_list, coalesce_int, truncate_text
+
+
+YTS_REQUEST_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0 Safari/537.36"
+    ),
+    "Accept": "application/json,text/plain,*/*",
+}
+
+YTS_BUILTIN_FALLBACK_URLS = [
+    "https://yts.lt/api/v2/list_movies.json",
+    "https://yts.am/api/v2/list_movies.json",
+    "https://yts.rs/api/v2/list_movies.json",
+]
+
+
+def _candidate_yts_urls() -> list[str]:
+    candidates: list[str] = [YTS_LIST_MOVIES_URL]
+    for url in YTS_LIST_MOVIES_FALLBACK_URLS:
+        if url not in candidates:
+            candidates.append(url)
+    for url in YTS_BUILTIN_FALLBACK_URLS:
+        if url not in candidates:
+            candidates.append(url)
+    return candidates
 
 
 def _build_archive_query(query: str) -> str:
@@ -284,6 +312,7 @@ async def search_movies(
     q: str,
     page: int,
     limit: int,
+    source: str,
     sort_by: str,
     sort_dir: str,
     genre: str | None,
@@ -293,6 +322,20 @@ async def search_movies(
 ) -> dict[str, Any]:
     page = max(page, 1)
     limit = max(1, min(limit, MAX_SEARCH_LIMIT))
+    source = source.strip().lower() if source else "yts"
+
+    if source == "archive":
+        return await _search_archive(
+            q=q,
+            page=page,
+            limit=limit,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            genre=genre,
+            year_min=year_min,
+            year_max=year_max,
+            imdb_min=imdb_min,
+        )
 
     if q.strip() and sort_by == "downloads":
         sort_by = "title"
@@ -320,23 +363,40 @@ async def search_movies(
     if genre:
         yts_params["genre"] = genre
 
+    yts_urls = _candidate_yts_urls()
+
+    payload: dict[str, Any] = {}
+    yts_movies: list[dict[str, Any]] = []
+    omdb_results: list[dict[str, Any] | None] = []
+    last_yts_error: Exception | None = None
+    yts_provider_used = ""
+
     try:
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            response = await client.get(YTS_LIST_MOVIES_URL, params=yts_params)
-            response.raise_for_status()
-            payload = response.json()
+        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+            for yts_url in yts_urls:
+                try:
+                    response = await client.get(yts_url, params=yts_params, headers=YTS_REQUEST_HEADERS)
+                    response.raise_for_status()
+                    payload = response.json()
+                    yts_provider_used = yts_url
 
-            data = payload.get("data", {}) if isinstance(payload, dict) else {}
-            yts_movies = data.get("movies", []) if isinstance(data, dict) else []
-            if not isinstance(yts_movies, list):
-                yts_movies = []
+                    data = payload.get("data", {}) if isinstance(payload, dict) else {}
+                    yts_movies = data.get("movies", []) if isinstance(data, dict) else []
+                    if not isinstance(yts_movies, list):
+                        yts_movies = []
 
-            omdb_tasks = []
-            for movie in yts_movies[:MAX_OMDB_ENRICH]:
-                if isinstance(movie, dict):
-                    omdb_tasks.append(_fetch_omdb_for_movie(client, as_text(movie.get("imdb_code")) or ""))
+                    omdb_tasks = []
+                    for movie in yts_movies[:MAX_OMDB_ENRICH]:
+                        if isinstance(movie, dict):
+                            omdb_tasks.append(_fetch_omdb_for_movie(client, as_text(movie.get("imdb_code")) or ""))
 
-            omdb_results = await asyncio.gather(*omdb_tasks, return_exceptions=False) if omdb_tasks else []
+                    omdb_results = await asyncio.gather(*omdb_tasks, return_exceptions=False) if omdb_tasks else []
+                    break
+                except httpx.HTTPError as url_exc:
+                    last_yts_error = url_exc
+
+            if not yts_provider_used:
+                raise last_yts_error or httpx.HTTPError("No YTS endpoint configured")
     except httpx.HTTPError as exc:
         try:
             fallback_payload = await _search_archive(
@@ -351,6 +411,7 @@ async def search_movies(
                 imdb_min=imdb_min,
             )
             fallback_payload["warning"] = f"Primary provider unavailable: {exc}"
+            fallback_payload["provider_error"] = str(exc)
             return fallback_payload
         except httpx.HTTPError as fallback_exc:
             return {
@@ -396,6 +457,7 @@ async def search_movies(
         "total": total,
         "has_more": has_more,
         "source_provider": "yts",
+        "provider_used": yts_provider_used,
         "applied_sort": {"sort_by": sort_by, "sort_dir": sort_dir},
         "applied_filters": {
             "genre": genre,
@@ -408,15 +470,25 @@ async def search_movies(
 
 
 async def check_yts_connectivity() -> dict[str, Any]:
-    try:
-        async with httpx.AsyncClient(timeout=6.0) as client:
-            response = await client.get(YTS_LIST_MOVIES_URL, params={"limit": 1, "page": 1})
-            response.raise_for_status()
-            payload = response.json()
-            status = payload.get("status") if isinstance(payload, dict) else None
-            return {"reachable": True, "status": status}
-    except Exception as exc:
-        return {"reachable": False, "error": str(exc)}
+    yts_urls = _candidate_yts_urls()
+
+    last_error: Exception | None = None
+    for yts_url in yts_urls:
+        try:
+            async with httpx.AsyncClient(timeout=6.0, follow_redirects=True) as client:
+                response = await client.get(
+                    yts_url,
+                    params={"limit": 1, "page": 1},
+                    headers=YTS_REQUEST_HEADERS,
+                )
+                response.raise_for_status()
+                payload = response.json()
+                status = payload.get("status") if isinstance(payload, dict) else None
+                return {"reachable": True, "status": status, "provider_used": yts_url}
+        except Exception as exc:
+            last_error = exc
+
+    return {"reachable": False, "error": str(last_error) if last_error else "No YTS endpoint configured"}
 
 
 async def check_omdb_connectivity() -> dict[str, Any]:

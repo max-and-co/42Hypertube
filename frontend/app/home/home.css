@@ -466,6 +466,19 @@
   color: #666;
 }
 
+.provider-banner {
+  font-family: 'Cinzel', serif;
+  font-size: .66rem;
+  letter-spacing: .26em;
+  text-transform: uppercase;
+  color: #9b9b9b;
+  margin-bottom: 14px;
+}
+
+.provider-banner-warning {
+  color: #c7a265;
+}
+
 .movie-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));

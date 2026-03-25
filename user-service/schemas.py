@@ -59,6 +59,7 @@ class DiscoverQuery(BaseModel):
     q: str = ""
     page: int = 1
     limit: int = 24
+    source: str = "yts"
     sort_by: str = "downloads"
     sort_dir: str = "desc"
     genre: Optional[str] = None
