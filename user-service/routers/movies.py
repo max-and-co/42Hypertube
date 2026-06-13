@@ -215,6 +215,7 @@ async def _fallback_discover_results(
     q: str,
     page: int,
     limit: int,
+    source: str,
     sort_by: str,
     sort_dir: str,
     genre: str | None,
@@ -223,6 +224,9 @@ async def _fallback_discover_results(
     imdb_min: float | None,
 ) -> tuple[list[dict[str, object]], int, bool, str]:
     cache_query = select(ExternalMovieCache)
+
+    if source in {"yts", "archive"}:
+        cache_query = cache_query.where(ExternalMovieCache.source == source)
 
     if q.strip():
         like = f"%{q.strip()}%"
@@ -347,6 +351,7 @@ async def discover_movies(
     q: str = "",
     page: int = Query(1, ge=1),
     limit: int = Query(24, ge=1, le=50),
+    source: str = "yts",
     sort_by: str = "downloads",
     sort_dir: str = "desc",
     genre: str | None = None,
@@ -356,6 +361,9 @@ async def discover_movies(
     db: AsyncSession = Depends(get_db),
 ):
     user_id = get_current_user_id(request)
+    requested_source = source.strip().lower() if source else "yts"
+    if requested_source not in {"yts", "archive"}:
+        raise HTTPException(status_code=400, detail="source must be 'yts' or 'archive'")
 
     if q.strip() and sort_by == "downloads":
         sort_by = "title"
@@ -365,6 +373,7 @@ async def discover_movies(
         "q": q,
         "page": page,
         "limit": limit,
+        "source": requested_source,
         "sort_by": sort_by,
         "sort_dir": sort_dir,
     }
@@ -389,6 +398,7 @@ async def discover_movies(
             q=q,
             page=page,
             limit=limit,
+            source=requested_source,
             sort_by=sort_by,
             sort_dir=sort_dir,
             genre=genre,
@@ -404,6 +414,9 @@ async def discover_movies(
             "has_more": fallback_has_more,
             "applied_sort": {"sort_by": sort_by, "sort_dir": sort_dir},
             "applied_filters": {"genre": genre, "year_min": year_min, "year_max": year_max, "imdb_min": imdb_min},
+            "source": requested_source,
+            "requested_source": requested_source,
+            "provider_used": fallback_source,
             "results": fallback_results,
             "warning": f"Provider request failed; using {fallback_source} fallback",
             "provider_error": str(exc),
@@ -421,6 +434,7 @@ async def discover_movies(
             q=q,
             page=page,
             limit=limit,
+            source=requested_source,
             sort_by=sort_by,
             sort_dir=sort_dir,
             genre=genre,
@@ -439,6 +453,9 @@ async def discover_movies(
                 "applied_filters",
                 {"genre": genre, "year_min": year_min, "year_max": year_max, "imdb_min": imdb_min},
             ),
+            "source": requested_source,
+            "requested_source": requested_source,
+            "provider_used": fallback_source,
             "results": fallback_results,
             "warning": f"Provider unavailable; using {fallback_source} fallback",
             "provider_error": str(provider_error),
@@ -449,14 +466,14 @@ async def discover_movies(
     for item in raw_results:
         if not isinstance(item, dict):
             continue
-        source = str(item.get("source") or "yts")
+        item_source = str(item.get("source") or "yts")
         external_id = str(item.get("id") or item.get("external_id") or "")
         if not external_id:
             continue
-        external_pairs.append((source, external_id))
+        external_pairs.append((item_source, external_id))
         cache_rows.append(
             {
-                "source": source,
+                "source": item_source,
                 "external_id": external_id,
                 "imdb_id": item.get("imdb_id"),
                 "title": item.get("title") or "Untitled",
@@ -503,14 +520,14 @@ async def discover_movies(
     for item in raw_results:
         if not isinstance(item, dict):
             continue
-        source = str(item.get("source") or "yts")
+        item_source = str(item.get("source") or "yts")
         external_id = str(item.get("id") or item.get("external_id") or "")
         if not external_id:
             continue
         normalized.append(
             {
                 "id": external_id,
-                "source": source,
+                "source": item_source,
                 "title": item.get("title") or "Untitled",
                 "year": _as_int(item.get("year")),
                 "imdb_id": item.get("imdb_id"),
@@ -521,7 +538,7 @@ async def discover_movies(
                 "seeders": _as_int(item.get("seeders")),
                 "peers": _as_int(item.get("peers")),
                 "torrent_hash": item.get("torrent_hash"),
-                "watched": (source, external_id) in watched_pairs,
+                "watched": (item_source, external_id) in watched_pairs,
                 "url": item.get("url"),
             }
         )
@@ -537,6 +554,11 @@ async def discover_movies(
             "applied_filters",
             {"genre": genre, "year_min": year_min, "year_max": year_max, "imdb_min": imdb_min},
         ),
+        "source": requested_source,
+        "requested_source": requested_source,
+        "provider_used": str(payload.get("provider_used") or payload.get("source_provider") or requested_source),
+        "warning": payload.get("warning"),
+        "provider_error": payload.get("provider_error") or payload.get("error"),
         "results": normalized,
     }
 

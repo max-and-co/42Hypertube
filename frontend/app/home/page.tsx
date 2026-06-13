@@ -29,6 +29,10 @@ type DiscoverResponse = {
   limit: number;
   total: number;
   has_more: boolean;
+  requested_source?: string;
+  provider_used?: string;
+  warning?: string;
+  provider_error?: string;
   results: DiscoverMovie[];
 };
 
@@ -54,6 +58,7 @@ export default function Home() {
 
   const [sortBy, setSortBy] = useState("downloads");
   const [sortDir, setSortDir] = useState("desc");
+  const [sourceChoice, setSourceChoice] = useState("yts");
   const [genre, setGenre] = useState("");
   const [yearMin, setYearMin] = useState("");
   const [yearMax, setYearMax] = useState("");
@@ -66,6 +71,8 @@ export default function Home() {
   const [isLoadingInitial, setIsLoadingInitial] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [providerUsed, setProviderUsed] = useState<string>("-");
+  const [providerWarning, setProviderWarning] = useState<string | null>(null);
 
   const router = useRouter();
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -85,11 +92,16 @@ export default function Home() {
         setIsLoadingMore(true);
       }
       setSearchError(null);
+      if (reset) {
+        setProviderUsed("-");
+        setProviderWarning(null);
+      }
 
       const params = new URLSearchParams({
         q: activeQuery.trim(),
         page: String(targetPage),
         limit: "24",
+        source: sourceChoice,
         sort_by: effectiveSort.sortBy,
         sort_dir: effectiveSort.sortDir,
       });
@@ -107,6 +119,9 @@ export default function Home() {
 
         const data = (await res.json()) as DiscoverResponse;
         const incoming = Array.isArray(data.results) ? data.results : [];
+        const effectiveProvider = (data.provider_used || data.requested_source || sourceChoice || "-").toUpperCase();
+        setProviderUsed(effectiveProvider);
+        setProviderWarning(data.warning || null);
 
         setMovies((prev) => {
           if (reset) return incoming;
@@ -127,9 +142,11 @@ export default function Home() {
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
         setSearchError(message);
+        setProviderWarning(null);
         if (reset) {
           setMovies([]);
           setHasMore(false);
+          setProviderUsed("-");
         }
       } finally {
         if (reset) {
@@ -139,7 +156,7 @@ export default function Home() {
         }
       }
     },
-    [activeQuery, effectiveSort.sortBy, effectiveSort.sortDir, genre, yearMin, yearMax, imdbMin]
+    [activeQuery, effectiveSort.sortBy, effectiveSort.sortDir, sourceChoice, genre, yearMin, yearMax, imdbMin]
   );
 
   useEffect(() => {
@@ -201,6 +218,7 @@ export default function Home() {
   };
 
   const handleClearFilters = () => {
+    setSourceChoice("yts");
     setGenre("");
     setYearMin("");
     setYearMax("");
@@ -393,6 +411,13 @@ export default function Home() {
               </select>
             </label>
             <label className="filter-field">
+              <span>Source</span>
+              <select value={sourceChoice} onChange={(e) => setSourceChoice(e.target.value)}>
+                <option value="yts">YTS</option>
+                <option value="archive">Archive.org</option>
+              </select>
+            </label>
+            <label className="filter-field">
               <span>{t("home.genre")}</span>
               <input value={genre} onChange={(e) => setGenre(e.target.value)} placeholder="Drama" />
             </label>
@@ -429,6 +454,9 @@ export default function Home() {
             </p>
           </div>
 
+          <p className="provider-banner">Provider used: {providerUsed}</p>
+          {providerWarning ? <p className="provider-banner provider-banner-warning">{providerWarning}</p> : null}
+
           <div className="movie-grid">
             {movies.map((movie, i) => (
               <article key={`${movie.source}:${movie.id}`} className={`movie-card ${movie.watched ? "movie-card-watched" : "movie-card-unwatched"}`}>
@@ -454,7 +482,7 @@ export default function Home() {
                 </button>
                 <p className="movie-title">{movie.title}</p>
                 <p className="movie-info">
-                  {movie.year ?? "N/A"} · IMDb {movie.imdb_rating?.toFixed(1) ?? "N/A"}
+                  {movie.year ?? "N/A"} · IMDb {movie.imdb_rating?.toFixed(1) ?? "N/A"} · {movie.source.toUpperCase()}
                 </p>
                 <div className="card-actions">
                   <button className="row-more" onClick={() => handleToggleWatched(movie)}>

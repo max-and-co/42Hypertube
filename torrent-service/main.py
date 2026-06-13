@@ -1,4 +1,5 @@
 from pathlib import Path
+import logging
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
@@ -15,6 +16,12 @@ from services.session_service import (
     get_stream_target,
     get_subtitle_local_path,
     list_subtitles,
+)
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 
 app = FastAPI(lifespan=lifespan, root_path="/api/torrent")
@@ -51,6 +58,7 @@ async def search_endpoint(
     q: str = "",
     page: int = 1,
     limit: int = DEFAULT_SEARCH_LIMIT,
+    source: str = "yts",
     sort_by: str = "downloads",
     sort_dir: str = "desc",
     genre: str | None = None,
@@ -62,6 +70,7 @@ async def search_endpoint(
         q=q,
         page=page,
         limit=limit,
+        source=source,
         sort_by=sort_by,
         sort_dir=sort_dir,
         genre=genre,
