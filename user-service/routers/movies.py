@@ -386,9 +386,18 @@ async def discover_movies(
     if imdb_min is not None:
         params["imdb_min"] = imdb_min
 
+    # Forward the caller's identity so the torrent-service /search endpoint
+    # (now authenticated) accepts this server-to-server request.
+    forward_headers: dict[str, str] = {}
+    access_cookie = request.cookies.get("access_token")
+    if access_cookie:
+        forward_headers["Authorization"] = f"Bearer {access_cookie}"
+
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            response = await client.get(f"{TORRENT_SERVICE_URL}/search", params=params)
+            response = await client.get(
+                f"{TORRENT_SERVICE_URL}/search", params=params, headers=forward_headers
+            )
             response.raise_for_status()
         payload = response.json()
     except httpx.HTTPError as exc:

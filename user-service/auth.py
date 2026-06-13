@@ -10,6 +10,10 @@ from sqlalchemy.orm import sessionmaker
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:8080")
 
+# Set COOKIE_SECURE=true when serving over HTTPS so the auth cookie is never
+# sent over plain HTTP. Defaults to false for local HTTP development.
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").strip().lower() in {"1", "true", "yes"}
+
 FT_CLIENT_ID     = os.getenv("FT_CLIENT_ID", "")
 FT_CLIENT_SECRET = os.getenv("FT_CLIENT_SECRET", "")
 FT_REDIRECT_URI  = os.getenv("FT_REDIRECT_URI", "http://localhost:8080/api/oauth/42/callback")
@@ -102,5 +106,5 @@ def set_auth_cookie(response: Response, user_id: int) -> None:
         httponly=True,
         max_age=60 * 60 * 24 * 7,
         samesite="lax",
-        secure=False,
+        secure=COOKIE_SECURE,
     )

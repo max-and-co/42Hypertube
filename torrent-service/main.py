@@ -55,6 +55,7 @@ async def protected_route(user_id: int = Depends(get_current_user_id)):
 
 @app.get("/search")
 async def search_endpoint(
+    request: Request,
     q: str = "",
     page: int = 1,
     limit: int = DEFAULT_SEARCH_LIMIT,
@@ -66,6 +67,7 @@ async def search_endpoint(
     year_max: int | None = None,
     imdb_min: float | None = None,
 ):
+    get_current_user_id(request)
     return await search_movies(
         q=q,
         page=page,
@@ -97,6 +99,7 @@ async def get_session_endpoint(session_id: str, request: Request):
 
 @app.get("/stream/{session_id}")
 async def open_stream(session_id: str, request: Request):
+    get_current_user_id(request)
     stream_url, stream_path, status_value = await get_stream_target(session_id)
 
     if stream_path:
@@ -112,12 +115,14 @@ async def open_stream(session_id: str, request: Request):
 
 
 @app.get("/subtitles/{session_id}")
-async def list_subtitles_endpoint(session_id: str):
+async def list_subtitles_endpoint(session_id: str, request: Request):
+    get_current_user_id(request)
     return await list_subtitles(session_id)
 
 
 @app.get("/subtitles/{session_id}/{subtitle_name}")
-async def get_subtitle_file(session_id: str, subtitle_name: str):
+async def get_subtitle_file(session_id: str, subtitle_name: str, request: Request):
+    get_current_user_id(request)
     subtitle_path = await get_subtitle_local_path(session_id, subtitle_name)
     if subtitle_path is None or not subtitle_path.exists():
         raise HTTPException(status_code=404, detail="Subtitle file not found")

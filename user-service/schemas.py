@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class UserCreate(BaseModel):
@@ -7,7 +7,7 @@ class UserCreate(BaseModel):
     username: str
     first_name: str
     last_name: str
-    password: str
+    password: str = Field(min_length=8, max_length=128)
     preferred_language: str = "en"
 
 
@@ -22,7 +22,7 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str
-    new_password: str
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class UserUpdate(BaseModel):

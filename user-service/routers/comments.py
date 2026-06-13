@@ -64,12 +64,14 @@ async def update_comment(
     data: CommentUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    """PATCH /api/comments/:id — update comment content (authenticated)."""
-    get_current_user_id(request)
+    """PATCH /api/comments/:id — update comment content (author only)."""
+    user_id = get_current_user_id(request)
     result = await db.execute(select(Comment).where(Comment.id == comment_id))
     comment = result.scalars().first()
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
+    if comment.author_id != user_id:
+        raise HTTPException(status_code=403, detail="You can only modify your own comments")
 
     if data.comment is not None:
         comment.content = data.comment
@@ -80,12 +82,14 @@ async def update_comment(
 
 @router.delete("/comments/{comment_id:int}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_comment(comment_id: int, request: Request, db: AsyncSession = Depends(get_db)):
-    """DELETE /api/comments/:id — delete a comment (authenticated)."""
-    get_current_user_id(request)
+    """DELETE /api/comments/:id — delete a comment (author only)."""
+    user_id = get_current_user_id(request)
     result = await db.execute(select(Comment).where(Comment.id == comment_id))
     comment = result.scalars().first()
     if not comment:
         raise HTTPException(status_code=404, detail="Comment not found")
+    if comment.author_id != user_id:
+        raise HTTPException(status_code=403, detail="You can only delete your own comments")
     await db.delete(comment)
     await db.commit()
 
