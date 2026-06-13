@@ -58,7 +58,7 @@ export default function Home() {
 
   const [sortBy, setSortBy] = useState("downloads");
   const [sortDir, setSortDir] = useState("desc");
-  const [sourceChoice, setSourceChoice] = useState("yts");
+  const [sourceChoice, setSourceChoice] = useState("pdt");
   const [genre, setGenre] = useState("");
   const [yearMin, setYearMin] = useState("");
   const [yearMax, setYearMax] = useState("");
@@ -218,7 +218,7 @@ export default function Home() {
   };
 
   const handleClearFilters = () => {
-    setSourceChoice("yts");
+    setSourceChoice("pdt");
     setGenre("");
     setYearMin("");
     setYearMax("");
@@ -413,7 +413,7 @@ export default function Home() {
             <label className="filter-field">
               <span>Source</span>
               <select value={sourceChoice} onChange={(e) => setSourceChoice(e.target.value)}>
-                <option value="yts">YTS</option>
+                <option value="pdt">Public Domain Torrents</option>
                 <option value="archive">Archive.org</option>
               </select>
             </label>

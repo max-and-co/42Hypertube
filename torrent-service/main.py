@@ -9,7 +9,7 @@ from config import DEFAULT_SEARCH_LIMIT
 from lifecycle import lifespan
 from schemas import StreamSessionCreate
 from services.media_service import build_streaming_response, subtitle_media_type
-from services.search_service import check_omdb_connectivity, check_yts_connectivity, search_movies
+from services.search_service import check_omdb_connectivity, check_pdt_connectivity, search_movies
 from services.session_service import (
     create_stream_session,
     get_stream_session,
@@ -34,12 +34,12 @@ async def health_check():
 
 @app.get("/health/providers")
 async def providers_health():
-    yts = await check_yts_connectivity()
+    pdt = await check_pdt_connectivity()
     omdb = await check_omdb_connectivity()
     return {
         "status": "ok",
         "providers": {
-            "yts": yts,
+            "pdt": pdt,
             "omdb": omdb,
         },
     }
@@ -58,7 +58,7 @@ async def search_endpoint(
     q: str = "",
     page: int = 1,
     limit: int = DEFAULT_SEARCH_LIMIT,
-    source: str = "yts",
+    source: str = "pdt",
     sort_by: str = "downloads",
     sort_dir: str = "desc",
     genre: str | None = None,

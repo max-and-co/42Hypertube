@@ -225,7 +225,7 @@ async def _fallback_discover_results(
 ) -> tuple[list[dict[str, object]], int, bool, str]:
     cache_query = select(ExternalMovieCache)
 
-    if source in {"yts", "archive"}:
+    if source in {"pdt", "archive"}:
         cache_query = cache_query.where(ExternalMovieCache.source == source)
 
     if q.strip():
@@ -351,7 +351,7 @@ async def discover_movies(
     q: str = "",
     page: int = Query(1, ge=1),
     limit: int = Query(24, ge=1, le=50),
-    source: str = "yts",
+    source: str = "pdt",
     sort_by: str = "downloads",
     sort_dir: str = "desc",
     genre: str | None = None,
@@ -361,9 +361,9 @@ async def discover_movies(
     db: AsyncSession = Depends(get_db),
 ):
     user_id = get_current_user_id(request)
-    requested_source = source.strip().lower() if source else "yts"
-    if requested_source not in {"yts", "archive"}:
-        raise HTTPException(status_code=400, detail="source must be 'yts' or 'archive'")
+    requested_source = source.strip().lower() if source else "pdt"
+    if requested_source not in {"pdt", "archive"}:
+        raise HTTPException(status_code=400, detail="source must be 'pdt' or 'archive'")
 
     if q.strip() and sort_by == "downloads":
         sort_by = "title"
@@ -466,7 +466,7 @@ async def discover_movies(
     for item in raw_results:
         if not isinstance(item, dict):
             continue
-        item_source = str(item.get("source") or "yts")
+        item_source = str(item.get("source") or "pdt")
         external_id = str(item.get("id") or item.get("external_id") or "")
         if not external_id:
             continue
@@ -520,7 +520,7 @@ async def discover_movies(
     for item in raw_results:
         if not isinstance(item, dict):
             continue
-        item_source = str(item.get("source") or "yts")
+        item_source = str(item.get("source") or "pdt")
         external_id = str(item.get("id") or item.get("external_id") or "")
         if not external_id:
             continue
@@ -828,7 +828,7 @@ async def toggle_watched_state(
     external_id: str,
     request: Request,
     data: WatchToggleRequest,
-    source: str = "yts",
+    source: str = "pdt",
     db: AsyncSession = Depends(get_db),
 ):
     user_id = get_current_user_id(request)

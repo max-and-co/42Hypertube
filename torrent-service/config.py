@@ -2,15 +2,8 @@ import os
 from pathlib import Path
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-YTS_LIST_MOVIES_URL = os.getenv("YTS_LIST_MOVIES_URL", "https://yts.mx/api/v2/list_movies.json").strip()
-YTS_LIST_MOVIES_FALLBACK_URLS = [
-    url.strip()
-    for url in os.getenv(
-        "YTS_LIST_MOVIES_FALLBACK_URLS",
-        "https://yts.lt/api/v2/list_movies.json,https://yts.rs/api/v2/list_movies.json",
-    ).split(",")
-    if url.strip()
-]
+PDT_BASE_URL = os.getenv("PDT_BASE_URL", "http://www.publicdomaintorrents.info").rstrip("/")
+PDT_CATALOG_TTL = int(os.getenv("PDT_CATALOG_TTL", "3600"))
 ARCHIVE_ADVANCEDSEARCH_URL = "https://archive.org/advancedsearch.php"
 OMDB_BASE_URL = "https://www.omdbapi.com/"
 OMDB_API_KEY = os.getenv("OMDB_API_KEY", "").strip()
