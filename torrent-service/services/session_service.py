@@ -3,14 +3,15 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urljoin
 from uuid import uuid4
 
 import httpx
+from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
 import runtime_state
-from config import BUFFER_READY_BYTES, MEDIA_ROOT, SUBTITLES_ROOT, TORRENT_POLL_SECONDS
+from config import BUFFER_READY_BYTES, MEDIA_ROOT, PDT_BASE_URL, SUBTITLES_ROOT, TORRENT_POLL_SECONDS
 from schemas import StreamSessionCreate
 from services.common import (
     is_subtitle_file,
@@ -158,71 +159,63 @@ async def _prepare_archive_session(session_id: str, external_id: str) -> None:
         session["updated_at"] = now_iso()
 
 
-async def _prepare_torrent_session(session_id: str, torrent_hash: str | None) -> None:
-    logger.info("Preparing torrent stream session", extra={"session_id": session_id})
-    async with runtime_state.STREAM_LOCK:
-        session = runtime_state.STREAM_SESSIONS[session_id]
-        movie_id = int(session.get("movie_id") or 0)
-        external_id = str(session.get("external_id") or "")
-        title = str(session.get("title") or external_id or "movie")
-        user_id = int(session.get("user_id") or 0)
+def _select_pdt_torrent_url(html: str) -> str | None:
+    """Pick the best `.torrent` link from a PDT movie page.
 
-    if not torrent_hash:
-        async with runtime_state.STREAM_LOCK:
-            session = runtime_state.STREAM_SESSIONS[session_id]
-            session["status"] = "error"
-            session["error"] = "Missing torrent hash for yts source"
-            session["updated_at"] = now_iso()
-        await update_movie_state(movie_id, stream_status="error", last_accessed_at=datetime.now(timezone.utc))
-        return
+    Prefers full-quality Divx/AVI, then portable MP4 (PSP/iPod/Zune), and avoids
+    the low-resolution PDA versions.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    base = f"{PDT_BASE_URL}/"
+    best_url: str | None = None
+    best_score = -1
+    for anchor in soup.find_all("a", href=True):
+        href = anchor["href"]
+        if ".torrent" not in href.lower():
+            continue
+        blob = f"{href} {anchor.get_text()}".lower()
+        if "pda" in blob:
+            score = 0
+        elif "psp" in blob or "ipod" in blob or "zune" in blob or "mp4" in blob:
+            score = 1
+        elif "divx" in blob or "avi" in blob:
+            score = 3
+        else:
+            score = 2
+        if score > best_score:
+            best_score = score
+            best_url = urljoin(base, href)
+    return best_url
 
+
+async def _resolve_pdt_torrent(external_id: str):
+    """Fetch the PDT movie page, find its best torrent, return a libtorrent info."""
     if lt is None:
-        async with runtime_state.STREAM_LOCK:
-            session = runtime_state.STREAM_SESSIONS[session_id]
-            session["status"] = "error"
-            session["error"] = "libtorrent unavailable in container"
-            session["updated_at"] = now_iso()
-        await update_movie_state(movie_id, stream_status="error", last_accessed_at=datetime.now(timezone.utc))
-        return
+        raise RuntimeError("libtorrent unavailable in container")
 
-    target_dir = MEDIA_ROOT / f"yts-{slugify(external_id)}-{slugify(title)}"
-    target_dir.mkdir(parents=True, exist_ok=True)
+    movie_url = f"{PDT_BASE_URL}/nshowmovie.html?movieid={external_id}"
+    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+        response = await client.get(movie_url)
+        response.raise_for_status()
+        torrent_url = _select_pdt_torrent_url(response.text)
+        if not torrent_url:
+            raise RuntimeError(f"No torrent link found on PDT page for movieid={external_id}")
 
-    existing_files = [path for path in target_dir.rglob("*") if path.is_file() and is_video_file(path.name)]
-    if existing_files:
-        selected = max(existing_files, key=lambda path: path.stat().st_size)
-        selected_for_stream = selected
-        if selected.suffix.lower() == ".mkv":
-            transcoded = target_dir / f"{selected.stem}.mp4"
-            if transcoded.exists() and transcoded.stat().st_size > BUFFER_READY_BYTES:
-                selected_for_stream = transcoded
+        torrent_response = await client.get(torrent_url)
+        torrent_response.raise_for_status()
+        torrent_bytes = torrent_response.content
 
-        await update_movie_state(
-            movie_id,
-            stream_status="ready",
-            video_path=str(selected_for_stream),
-            last_accessed_at=datetime.now(timezone.utc),
-            last_watched_at=datetime.now(timezone.utc),
-        )
+    return lt.torrent_info(lt.bdecode(torrent_bytes))  # type: ignore[union-attr]
 
-        async with runtime_state.STREAM_LOCK:
-            session = runtime_state.STREAM_SESSIONS[session_id]
-            session["status"] = "ready"
-            session["selected_file"] = str(selected_for_stream)
-            session["stream_path"] = str(selected_for_stream)
-            session["stream_url"] = f"/api/stream/{session_id}"
-            session["progress"] = 1.0
-            session["updated_at"] = now_iso()
-        return
 
-    magnet_uri = f"magnet:?xt=urn:btih:{torrent_hash}&dn={quote(title)}"
-    lt_session = lt.session()  # type: ignore[union-attr]
-    params = {
-        "save_path": str(target_dir),
-        "storage_mode": lt.storage_mode_t.storage_mode_sparse,  # type: ignore[union-attr]
-    }
-    handle = lt.add_magnet_uri(lt_session, magnet_uri, params)  # type: ignore[union-attr]
-
+async def _drive_torrent_download(
+    session_id: str,
+    handle: Any,
+    target_dir: Path,
+    movie_id: int,
+    user_id: int,
+) -> None:
+    """Shared libtorrent download loop: buffer, transcode mkv, attach subtitles."""
     selected_video: Path | None = None
     preferred_language = await fetch_user_pref_language(user_id) if user_id else "en"
 
@@ -361,6 +354,77 @@ async def _prepare_torrent_session(session_id: str, torrent_hash: str | None) ->
     await update_movie_state(movie_id, stream_status="ready", last_accessed_at=datetime.now(timezone.utc))
 
 
+async def _fail_session(session_id: str, movie_id: int, message: str) -> None:
+    async with runtime_state.STREAM_LOCK:
+        session = runtime_state.STREAM_SESSIONS[session_id]
+        session["status"] = "error"
+        session["error"] = message
+        session["updated_at"] = now_iso()
+    await update_movie_state(movie_id, stream_status="error", last_accessed_at=datetime.now(timezone.utc))
+
+
+async def _prepare_pdt_session(session_id: str, external_id: str) -> None:
+    logger.info("Preparing PDT torrent stream session", extra={"session_id": session_id, "external_id": external_id})
+    async with runtime_state.STREAM_LOCK:
+        session = runtime_state.STREAM_SESSIONS[session_id]
+        movie_id = int(session.get("movie_id") or 0)
+        title = str(session.get("title") or external_id or "movie")
+        user_id = int(session.get("user_id") or 0)
+
+    if lt is None:
+        await _fail_session(session_id, movie_id, "libtorrent unavailable in container")
+        return
+
+    target_dir = MEDIA_ROOT / f"pdt-{slugify(external_id)}-{slugify(title)}"
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    existing_files = [path for path in target_dir.rglob("*") if path.is_file() and is_video_file(path.name)]
+    if existing_files:
+        selected = max(existing_files, key=lambda path: path.stat().st_size)
+        selected_for_stream = selected
+        if selected.suffix.lower() == ".mkv":
+            transcoded = target_dir / f"{selected.stem}.mp4"
+            if transcoded.exists() and transcoded.stat().st_size > BUFFER_READY_BYTES:
+                selected_for_stream = transcoded
+
+        await update_movie_state(
+            movie_id,
+            stream_status="ready",
+            video_path=str(selected_for_stream),
+            last_accessed_at=datetime.now(timezone.utc),
+            last_watched_at=datetime.now(timezone.utc),
+        )
+
+        async with runtime_state.STREAM_LOCK:
+            session = runtime_state.STREAM_SESSIONS[session_id]
+            session["status"] = "ready"
+            session["selected_file"] = str(selected_for_stream)
+            session["stream_path"] = str(selected_for_stream)
+            session["stream_url"] = f"/api/stream/{session_id}"
+            session["progress"] = 1.0
+            session["updated_at"] = now_iso()
+        return
+
+    torrent_info = await _resolve_pdt_torrent(external_id)
+
+    lt_session = lt.session()  # type: ignore[union-attr]
+    handle = lt_session.add_torrent(
+        {
+            "ti": torrent_info,
+            "save_path": str(target_dir),
+            "storage_mode": lt.storage_mode_t.storage_mode_sparse,  # type: ignore[union-attr]
+        }
+    )
+
+    await _drive_torrent_download(
+        session_id=session_id,
+        handle=handle,
+        target_dir=target_dir,
+        movie_id=movie_id,
+        user_id=user_id,
+    )
+
+
 async def _prepare_stream_session(session_id: str) -> None:
     try:
         async with runtime_state.STREAM_LOCK:
@@ -373,7 +437,6 @@ async def _prepare_stream_session(session_id: str) -> None:
             session["updated_at"] = now_iso()
             source = str(session.get("source") or "")
             external_id = str(session.get("external_id") or "")
-            torrent_hash = session.get("torrent_hash")
 
         await update_movie_state(movie_id, stream_status="preparing", last_accessed_at=datetime.now(timezone.utc))
 
@@ -381,8 +444,8 @@ async def _prepare_stream_session(session_id: str) -> None:
             await _prepare_archive_session(session_id=session_id, external_id=external_id)
             return
 
-        if source == "yts":
-            await _prepare_torrent_session(session_id=session_id, torrent_hash=torrent_hash)
+        if source == "pdt":
+            await _prepare_pdt_session(session_id=session_id, external_id=external_id)
             return
 
         raise RuntimeError(f"Unsupported source '{source}'")

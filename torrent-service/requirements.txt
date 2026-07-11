@@ -5,3 +5,4 @@ asyncpg
 pyjwt
 internetarchive
 httpx
+beautifulsoup4

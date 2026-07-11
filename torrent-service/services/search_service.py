@@ -1,7 +1,10 @@
 import asyncio
+import re
+import time
 from typing import Any
 
 import httpx
+from bs4 import BeautifulSoup
 
 from config import (
     ARCHIVE_ADVANCEDSEARCH_URL,
@@ -10,37 +13,10 @@ from config import (
     NOISY_ARCHIVE_TERMS,
     OMDB_API_KEY,
     OMDB_BASE_URL,
-    YTS_LIST_MOVIES_URL,
-    YTS_LIST_MOVIES_FALLBACK_URLS,
+    PDT_BASE_URL,
+    PDT_CATALOG_TTL,
 )
 from services.common import as_float, as_int, as_text, as_text_list, coalesce_int, truncate_text
-
-
-YTS_REQUEST_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0 Safari/537.36"
-    ),
-    "Accept": "application/json,text/plain,*/*",
-}
-
-YTS_BUILTIN_FALLBACK_URLS = [
-    "https://yts.lt/api/v2/list_movies.json",
-    "https://yts.am/api/v2/list_movies.json",
-    "https://yts.rs/api/v2/list_movies.json",
-]
-
-
-def _candidate_yts_urls() -> list[str]:
-    candidates: list[str] = [YTS_LIST_MOVIES_URL]
-    for url in YTS_LIST_MOVIES_FALLBACK_URLS:
-        if url not in candidates:
-            candidates.append(url)
-    for url in YTS_BUILTIN_FALLBACK_URLS:
-        if url not in candidates:
-            candidates.append(url)
-    return candidates
 
 
 def _build_archive_query(query: str) -> str:
@@ -245,58 +221,60 @@ async def _search_archive(
     }
 
 
-def _normalize_yts_movie(movie: dict[str, Any], omdb: dict[str, Any] | None = None) -> dict[str, Any]:
-    torrents = movie.get("torrents") if isinstance(movie.get("torrents"), list) else []
-    seeders = max((as_int(t.get("seeds")) or 0) for t in torrents) if torrents else None
-    peers = max((as_int(t.get("peers")) or 0) for t in torrents) if torrents else None
+# ---------------------------------------------------------------------------
+# Public Domain Torrents (publicdomaintorrents.info) — legal torrent provider.
+# The site has no JSON API: a single category page lists every movie as
+# `<a href="nshowmovie.html?movieid=N">Title</a>`. We scrape and cache that
+# listing, filter/sort/paginate it ourselves, then enrich the visible page with
+# OMDb metadata (year, rating, poster) since PDT exposes none.
+# ---------------------------------------------------------------------------
 
-    best_torrent = None
-    if torrents:
-        best_torrent = max(
-            (torrent for torrent in torrents if isinstance(torrent, dict)),
-            key=lambda torrent: ((as_int(torrent.get("seeds")) or 0), (as_int(torrent.get("peers")) or 0)),
-            default=None,
-        )
-
-    yts_rating = as_float(movie.get("rating"))
-    omdb_rating = as_float((omdb or {}).get("imdbRating"))
-    imdb_rating = omdb_rating if omdb_rating is not None else yts_rating
-
-    year = coalesce_int((omdb or {}).get("Year"), movie.get("year"))
-    title = as_text((omdb or {}).get("Title")) or as_text(movie.get("title")) or "Untitled"
-    genre_text = as_text((omdb or {}).get("Genre"))
-    genres = [genre.strip() for genre in genre_text.split(",")] if genre_text else movie.get("genres") or []
-
-    poster = as_text((omdb or {}).get("Poster"))
-    if poster == "N/A":
-        poster = None
-
-    return {
-        "id": str(movie.get("id") or ""),
-        "external_id": str(movie.get("id") or ""),
-        "source": "yts",
-        "title": title,
-        "year": year,
-        "imdb_id": as_text(movie.get("imdb_code")),
-        "imdb_rating": imdb_rating,
-        "genres": genres,
-        "thumbnail": poster or as_text(movie.get("large_cover_image")) or as_text(movie.get("medium_cover_image")),
-        "downloads": coalesce_int(movie.get("download_count"), movie.get("downloaded"), movie.get("downloads")),
-        "seeders": seeders,
-        "peers": peers,
-        "torrent_hash": as_text((best_torrent or {}).get("hash")),
-        "url": as_text(movie.get("url")),
-    }
+_PDT_LISTING_CACHE: dict[str, tuple[float, list[dict[str, str]]]] = {}
 
 
-async def _fetch_omdb_for_movie(client: httpx.AsyncClient, imdb_id: str) -> dict[str, Any] | None:
-    if not OMDB_API_KEY or not imdb_id:
+def _parse_pdt_listing(html: str) -> list[dict[str, str]]:
+    soup = BeautifulSoup(html, "html.parser")
+    seen: set[str] = set()
+    entries: list[dict[str, str]] = []
+    for anchor in soup.find_all("a", href=True):
+        match = re.search(r"movieid=(\d+)", anchor["href"])
+        if not match:
+            continue
+        movie_id = match.group(1)
+        title = " ".join(anchor.get_text().split())
+        if not title or movie_id in seen:
+            continue
+        seen.add(movie_id)
+        entries.append({"movieid": movie_id, "title": title})
+    return entries
+
+
+async def _fetch_pdt_listing(category: str) -> list[dict[str, str]]:
+    cache_key = category or "ALL"
+    now = time.monotonic()
+    cached = _PDT_LISTING_CACHE.get(cache_key)
+    if cached and now - cached[0] < PDT_CATALOG_TTL:
+        return cached[1]
+
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        response = await client.get(f"{PDT_BASE_URL}/nshowcat.html", params={"category": cache_key})
+        response.raise_for_status()
+        html = response.text
+
+    entries = _parse_pdt_listing(html)
+    if entries:
+        _PDT_LISTING_CACHE[cache_key] = (now, entries)
+    return entries
+
+
+async def _fetch_omdb_by_title(client: httpx.AsyncClient, title: str) -> dict[str, Any] | None:
+    if not OMDB_API_KEY or not title:
         return None
 
     try:
         response = await client.get(
             OMDB_BASE_URL,
-            params={"apikey": OMDB_API_KEY, "i": imdb_id, "r": "json"},
+            params={"apikey": OMDB_API_KEY, "t": title, "type": "movie", "r": "json"},
         )
         response.raise_for_status()
         payload = response.json()
@@ -306,6 +284,94 @@ async def _fetch_omdb_for_movie(client: httpx.AsyncClient, imdb_id: str) -> dict
         return None
 
     return None
+
+
+def _normalize_pdt_movie(entry: dict[str, str], omdb: dict[str, Any] | None = None) -> dict[str, Any]:
+    omdb = omdb or {}
+    movie_id = entry["movieid"]
+
+    poster = as_text(omdb.get("Poster"))
+    if poster == "N/A":
+        poster = None
+
+    genre_text = as_text(omdb.get("Genre"))
+    genres = [genre.strip() for genre in genre_text.split(",") if genre.strip()] if genre_text else []
+
+    return {
+        "id": movie_id,
+        "external_id": movie_id,
+        "source": "pdt",
+        "title": entry["title"] or as_text(omdb.get("Title")) or "Untitled",
+        "year": coalesce_int(omdb.get("Year")),
+        "imdb_id": as_text(omdb.get("imdbID")),
+        "imdb_rating": as_float(omdb.get("imdbRating")),
+        "genres": genres,
+        "thumbnail": poster,
+        "downloads": None,
+        "seeders": None,
+        "peers": None,
+        "url": f"{PDT_BASE_URL}/nshowmovie.html?movieid={movie_id}",
+    }
+
+
+async def _search_pdt(
+    q: str,
+    page: int,
+    limit: int,
+    sort_by: str,
+    sort_dir: str,
+    genre: str | None,
+    year_min: int | None,
+    year_max: int | None,
+    imdb_min: float | None,
+) -> dict[str, Any]:
+    category = genre.strip() if genre and genre.strip() else "ALL"
+    entries = await _fetch_pdt_listing(category)
+
+    query = " ".join(q.strip().split()).lower()
+    if query:
+        entries = [entry for entry in entries if query in entry["title"].lower()]
+
+    reverse = sort_dir.lower() == "desc"
+    entries = sorted(entries, key=lambda entry: entry["title"].lower(), reverse=reverse)
+
+    total = len(entries)
+    start = (page - 1) * limit
+    page_slice = entries[start : start + limit]
+
+    omdb_results: list[Any] = []
+    if page_slice:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            tasks = [_fetch_omdb_by_title(client, entry["title"]) for entry in page_slice[:MAX_OMDB_ENRICH]]
+            omdb_results = await asyncio.gather(*tasks, return_exceptions=False) if tasks else []
+
+    normalized: list[dict[str, Any]] = []
+    for index, entry in enumerate(page_slice):
+        omdb_data = omdb_results[index] if index < len(omdb_results) and isinstance(omdb_results[index], dict) else None
+        normalized.append(_normalize_pdt_movie(entry, omdb_data))
+
+    # Genre already constrained the catalog (category page); only year/rating
+    # filters remain. PDT has no global year/rating, so these apply within the
+    # enriched page slice.
+    filtered = _apply_filters(normalized, genre=None, year_min=year_min, year_max=year_max, imdb_min=imdb_min)
+    sorted_results = _sort_movies(filtered, sort_by=sort_by, sort_dir=sort_dir)
+
+    return {
+        "query": q,
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "has_more": (start + limit) < total and len(sorted_results) > 0,
+        "applied_sort": {"sort_by": sort_by, "sort_dir": sort_dir},
+        "applied_filters": {
+            "genre": genre,
+            "year_min": year_min,
+            "year_max": year_max,
+            "imdb_min": imdb_min,
+        },
+        "source_provider": "pdt",
+        "results": sorted_results,
+    }
 
 
 async def search_movies(
@@ -322,7 +388,7 @@ async def search_movies(
 ) -> dict[str, Any]:
     page = max(page, 1)
     limit = max(1, min(limit, MAX_SEARCH_LIMIT))
-    source = source.strip().lower() if source else "yts"
+    source = source.strip().lower() if source else "pdt"
 
     if source == "archive":
         return await _search_archive(
@@ -337,66 +403,18 @@ async def search_movies(
             imdb_min=imdb_min,
         )
 
-    if q.strip() and sort_by == "downloads":
-        sort_by = "title"
-        sort_dir = "asc"
-
-    yts_sort_map = {
-        "downloads": "download_count",
-        "seeders": "seeds",
-        "peers": "peers",
-        "title": "title",
-        "year": "year",
-        "imdb_rating": "rating",
-    }
-    yts_sort_by = yts_sort_map.get(sort_by, "download_count")
-    yts_order = "asc" if sort_dir.lower() == "asc" else "desc"
-
-    yts_params: dict[str, Any] = {
-        "page": page,
-        "limit": limit,
-        "sort_by": yts_sort_by,
-        "order_by": yts_order,
-    }
-    if q.strip():
-        yts_params["query_term"] = q.strip()
-    if genre:
-        yts_params["genre"] = genre
-
-    yts_urls = _candidate_yts_urls()
-
-    payload: dict[str, Any] = {}
-    yts_movies: list[dict[str, Any]] = []
-    omdb_results: list[dict[str, Any] | None] = []
-    last_yts_error: Exception | None = None
-    yts_provider_used = ""
-
     try:
-        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
-            for yts_url in yts_urls:
-                try:
-                    response = await client.get(yts_url, params=yts_params, headers=YTS_REQUEST_HEADERS)
-                    response.raise_for_status()
-                    payload = response.json()
-                    yts_provider_used = yts_url
-
-                    data = payload.get("data", {}) if isinstance(payload, dict) else {}
-                    yts_movies = data.get("movies", []) if isinstance(data, dict) else []
-                    if not isinstance(yts_movies, list):
-                        yts_movies = []
-
-                    omdb_tasks = []
-                    for movie in yts_movies[:MAX_OMDB_ENRICH]:
-                        if isinstance(movie, dict):
-                            omdb_tasks.append(_fetch_omdb_for_movie(client, as_text(movie.get("imdb_code")) or ""))
-
-                    omdb_results = await asyncio.gather(*omdb_tasks, return_exceptions=False) if omdb_tasks else []
-                    break
-                except httpx.HTTPError as url_exc:
-                    last_yts_error = url_exc
-
-            if not yts_provider_used:
-                raise last_yts_error or httpx.HTTPError("No YTS endpoint configured")
+        return await _search_pdt(
+            q=q,
+            page=page,
+            limit=limit,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            genre=genre,
+            year_min=year_min,
+            year_max=year_max,
+            imdb_min=imdb_min,
+        )
     except httpx.HTTPError as exc:
         try:
             fallback_payload = await _search_archive(
@@ -424,71 +442,15 @@ async def search_movies(
                 "error": f"Primary provider error: {exc}; Fallback provider error: {fallback_exc}",
             }
 
-    omdb_by_imdb_id: dict[str, dict[str, Any]] = {}
-    for movie, omdb_data in zip(yts_movies[:MAX_OMDB_ENRICH], omdb_results):
-        imdb_id = as_text(movie.get("imdb_code")) if isinstance(movie, dict) else None
-        if imdb_id and isinstance(omdb_data, dict):
-            omdb_by_imdb_id[imdb_id] = omdb_data
 
-    normalized: list[dict[str, Any]] = []
-    for movie in yts_movies:
-        if not isinstance(movie, dict):
-            continue
-        imdb_id = as_text(movie.get("imdb_code"))
-        normalized.append(_normalize_yts_movie(movie, omdb_by_imdb_id.get(imdb_id or "")))
-
-    filtered = _apply_filters(normalized, genre=genre, year_min=year_min, year_max=year_max, imdb_min=imdb_min)
-    sorted_results = _sort_movies(filtered, sort_by=sort_by, sort_dir=sort_dir)
-
-    total = 0
-    if isinstance(payload, dict):
-        data = payload.get("data")
-        if isinstance(data, dict):
-            total = as_int(data.get("movie_count")) or 0
-
-    if filtered and len(filtered) < total:
-        total = max(total, (page - 1) * limit + len(filtered))
-
-    has_more = page * limit < total and len(sorted_results) > 0
-    return {
-        "query": q,
-        "page": page,
-        "limit": limit,
-        "total": total,
-        "has_more": has_more,
-        "source_provider": "yts",
-        "provider_used": yts_provider_used,
-        "applied_sort": {"sort_by": sort_by, "sort_dir": sort_dir},
-        "applied_filters": {
-            "genre": genre,
-            "year_min": year_min,
-            "year_max": year_max,
-            "imdb_min": imdb_min,
-        },
-        "results": sorted_results,
-    }
-
-
-async def check_yts_connectivity() -> dict[str, Any]:
-    yts_urls = _candidate_yts_urls()
-
-    last_error: Exception | None = None
-    for yts_url in yts_urls:
-        try:
-            async with httpx.AsyncClient(timeout=6.0, follow_redirects=True) as client:
-                response = await client.get(
-                    yts_url,
-                    params={"limit": 1, "page": 1},
-                    headers=YTS_REQUEST_HEADERS,
-                )
-                response.raise_for_status()
-                payload = response.json()
-                status = payload.get("status") if isinstance(payload, dict) else None
-                return {"reachable": True, "status": status, "provider_used": yts_url}
-        except Exception as exc:
-            last_error = exc
-
-    return {"reachable": False, "error": str(last_error) if last_error else "No YTS endpoint configured"}
+async def check_pdt_connectivity() -> dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=6.0, follow_redirects=True) as client:
+            response = await client.get(f"{PDT_BASE_URL}/nshowcat.html", params={"category": "ALL"})
+            response.raise_for_status()
+        return {"reachable": True, "provider_used": PDT_BASE_URL}
+    except Exception as exc:
+        return {"reachable": False, "error": str(exc)}
 
 
 async def check_omdb_connectivity() -> dict[str, Any]:
