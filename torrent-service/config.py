@@ -42,6 +42,9 @@ RETENTION_DAYS = int(os.getenv("MEDIA_RETENTION_DAYS", "30"))
 
 BUFFER_READY_BYTES = int(os.getenv("STREAM_BUFFER_BYTES", str(20 * 1024 * 1024)))
 TORRENT_POLL_SECONDS = float(os.getenv("TORRENT_POLL_SECONDS", "1.0"))
+# A session must not sit at "buffering" forever with no explanation.
+METADATA_TIMEOUT_SECONDS = float(os.getenv("STREAM_METADATA_TIMEOUT", "90"))
+STALL_TIMEOUT_SECONDS = float(os.getenv("STREAM_STALL_TIMEOUT", "240"))
 
 NOISY_ARCHIVE_TERMS = {
     "template",

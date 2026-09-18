@@ -13,9 +13,10 @@ from fastapi import HTTPException
 import runtime_state
 from config import (
     ARCHIVE_METADATA_URL,
-    ARCHIVE_TRACKERS,
     BUFFER_READY_BYTES,
     MEDIA_ROOT,
+    METADATA_TIMEOUT_SECONDS,
+    STALL_TIMEOUT_SECONDS,
     TORRENT_POLL_SECONDS,
 )
 from schemas import StreamSessionCreate
@@ -55,36 +56,44 @@ def _format_rank(name: str) -> int:
 # ── Magnet resolution ─────────────────────────────────────────────────────────
 
 
-async def _resolve_archive_magnet(external_id: str, title: str) -> str:
-    """Archive.org publishes the infohash as `btih` on the .torrent file entry."""
-    async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+async def _fetch_archive_torrent(external_id: str) -> bytes:
+    """Download the item's .torrent.
+
+    We deliberately do NOT build a magnet from the `btih` archive.org
+    publishes. A magnet carries only the infohash and trackers, while the
+    .torrent additionally carries `url-list` - the BEP-19 webseeds pointing at
+    archive.org's own HTTP servers. Most archive items have no peers willing to
+    serve metadata, so without those webseeds the download stalls forever at
+    "buffering".
+    """
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         response = await client.get(f"{ARCHIVE_METADATA_URL}/{external_id}")
         response.raise_for_status()
         payload = response.json()
 
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"Unexpected archive.org metadata for '{external_id}'")
-    if payload.get("is_dark"):
-        raise RuntimeError(f"Archive item '{external_id}' is not publicly available")
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"Unexpected archive.org metadata for '{external_id}'")
+        if payload.get("is_dark"):
+            raise RuntimeError(f"Archive item '{external_id}' is not publicly available")
 
-    files = payload.get("files")
-    if not isinstance(files, list):
-        files = []
+        files = payload.get("files")
+        if not isinstance(files, list):
+            files = []
 
-    btih = ""
-    for item in files:
-        if not isinstance(item, dict):
-            continue
-        if str(item.get("name") or "").endswith(".torrent"):
-            btih = str(item.get("btih") or "").strip()
-            if btih:
+        torrent_name = ""
+        for item in files:
+            if isinstance(item, dict) and str(item.get("name") or "").endswith(".torrent"):
+                torrent_name = str(item["name"])
                 break
 
-    if not btih:
-        raise RuntimeError(f"Archive item '{external_id}' does not publish a torrent")
+        if not torrent_name:
+            raise RuntimeError(f"Archive item '{external_id}' does not publish a torrent")
 
-    trackers = "".join(f"&tr={quote(tracker, safe='')}" for tracker in ARCHIVE_TRACKERS)
-    return f"magnet:?xt=urn:btih:{btih}&dn={quote(title or external_id)}{trackers}"
+        torrent = await client.get(
+            f"https://archive.org/download/{quote(external_id)}/{quote(torrent_name)}"
+        )
+        torrent.raise_for_status()
+        return torrent.content
 
 
 async def _resolve_peertube_magnet(external_id: str) -> str:
@@ -130,12 +139,26 @@ async def _resolve_peertube_magnet(external_id: str) -> str:
     return str(chosen["magnetUri"])
 
 
-async def resolve_magnet(source: str, external_id: str, title: str) -> str:
+async def build_torrent_params(source: str, external_id: str, target_dir: Path):
+    """Produce libtorrent add-params for a source.
+
+    archive  -> the published .torrent, so its webseeds come with it
+    peertube -> the API's magnetUri, which already embeds a `ws=` webseed
+    """
     if source == "archive":
-        return await _resolve_archive_magnet(external_id, title)
-    if source == "peertube":
-        return await _resolve_peertube_magnet(external_id)
-    raise RuntimeError(f"Unsupported source '{source}'")
+        data = await _fetch_archive_torrent(external_id)
+        torrent_path = target_dir / f"{slugify(external_id)}.torrent"
+        torrent_path.write_bytes(data)
+        params = lt.add_torrent_params()
+        params.ti = lt.torrent_info(str(torrent_path))
+    elif source == "peertube":
+        params = lt.parse_magnet_uri(await _resolve_peertube_magnet(external_id))
+    else:
+        raise RuntimeError(f"Unsupported source '{source}'")
+
+    params.save_path = str(target_dir)
+    params.storage_mode = lt.storage_mode_t.storage_mode_sparse
+    return params
 
 
 # ── Subtitles ─────────────────────────────────────────────────────────────────
@@ -259,7 +282,7 @@ async def _mark_ready(session_id: str, movie_id: int, stream_file: Path) -> None
         session["updated_at"] = now_iso()
 
 
-async def _prepare_torrent_session(session_id: str, magnet_uri: str) -> None:
+async def _prepare_torrent_session(session_id: str) -> None:
     async with runtime_state.STREAM_LOCK:
         session = runtime_state.STREAM_SESSIONS[session_id]
         movie_id = int(session.get("movie_id") or 0)
@@ -293,9 +316,7 @@ async def _prepare_torrent_session(session_id: str, magnet_uri: str) -> None:
         await _mark_ready(session_id, movie_id, selected)
         return
 
-    params = lt.parse_magnet_uri(magnet_uri)
-    params.save_path = str(target_dir)
-    params.storage_mode = lt.storage_mode_t.storage_mode_sparse
+    params = await build_torrent_params(source, external_id, target_dir)
     lt_session = lt.session()
     handle = lt_session.add_torrent(params)
 
@@ -310,9 +331,29 @@ async def _prepare_torrent_session(session_id: str, magnet_uri: str) -> None:
     prioritised = False
     ready = False
 
+    started_at = asyncio.get_running_loop().time()
+    last_progress_at = started_at
+    last_done = 0
+
     try:
         while True:
             status = handle.status()
+            now = asyncio.get_running_loop().time()
+
+            if not status.has_metadata and now - started_at > METADATA_TIMEOUT_SECONDS:
+                raise RuntimeError(
+                    "No peer or webseed answered with torrent metadata "
+                    f"within {int(METADATA_TIMEOUT_SECONDS)}s"
+                )
+
+            done = int(getattr(status, "total_done", 0) or 0)
+            if done > last_done:
+                last_done = done
+                last_progress_at = now
+            elif not ready and now - last_progress_at > STALL_TIMEOUT_SECONDS:
+                raise RuntimeError(
+                    f"Download stalled: no data received for {int(STALL_TIMEOUT_SECONDS)}s"
+                )
 
             if status.has_metadata and not prioritised:
                 torrent_info = handle.torrent_file()
@@ -403,8 +444,7 @@ async def _prepare_stream_session(session_id: str) -> None:
 
         await update_movie_state(movie_id, stream_status="preparing", last_accessed_at=datetime.now(timezone.utc))
 
-        magnet_uri = await resolve_magnet(source, external_id, title)
-        await _prepare_torrent_session(session_id, magnet_uri)
+        await _prepare_torrent_session(session_id)
     except Exception as exc:
         logger.exception("Stream session failed", extra={"session_id": session_id})
         await _mark_error(session_id, movie_id, str(exc))

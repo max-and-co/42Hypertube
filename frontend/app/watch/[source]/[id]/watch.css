@@ -1,243 +1,283 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Cinzel:wght@400;700&display=swap');
+/* ==========================================================================
+   Watch — the entry for a single title
+   ========================================================================== */
 
-.watch-page {
-  min-height: 100vh;
-  background: radial-gradient(circle at top, #484848 0%, #3f3f3f 55%, #3a3a3a 100%);
-  color: #ededed;
-  font-family: 'Cinzel', serif;
-  padding-bottom: 40px;
-}
+.watch-page { min-height: 100vh; background: var(--bg); padding-bottom: 78px; }
 
+/* Masthead ---------------------------------------------------------------- */
 .watch-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  height: 74px;
-  padding: 0 28px;
-  border-bottom: 1px solid #4e4e4e;
-  background: rgba(58, 58, 58, 0.82);
-  backdrop-filter: blur(8px);
-}
-
-.watch-back {
-  border: 1px solid #5e5e5e;
-  background: #424242;
-  color: #e5e5e5;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  font-size: 0.65rem;
-  padding: 8px 14px;
-  cursor: pointer;
+  gap: 20px;
+  padding: 18px var(--gutter) 15px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--rule);
 }
 
 .watch-brand {
-  font-family: 'Playfair Display', serif;
-  font-size: 1.4rem;
-  letter-spacing: 0.06em;
-  margin: 0;
+  flex: 1;
+  text-align: center;
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 400;
+  font-style: italic;
+  font-size: 1.7rem;
+  line-height: 1;
+  color: var(--ink);
 }
 
-.watch-logout {
+.watch-back, .watch-logout {
+  padding: 3px 0;
   background: transparent;
-  border: none;
-  color: #a67c7c;
-  font-family: 'Cinzel', serif;
-  font-size: 0.65rem;
-  letter-spacing: 0.25em;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  color: var(--ink-3);
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  padding: 0;
   cursor: pointer;
-  transition: color 0.3s;
+  transition: color 0.16s var(--ease), border-color 0.16s var(--ease);
 }
-.watch-logout:hover { color: #c89696; }
+.watch-back:hover { color: var(--ink); border-bottom-color: var(--rose); }
+.watch-logout:hover { color: var(--danger); border-bottom-color: var(--danger); }
 
-.watch-status {
-  margin: 22px auto 0;
-  width: min(1100px, calc(100% - 36px));
-  color: #cacaca;
-  letter-spacing: 0.08em;
-  font-size: 0.72rem;
-}
-
-.watch-status-error {
-  color: #cbb3b3;
-}
-
+/* Layout ------------------------------------------------------------------ */
 .watch-main {
-  width: min(1180px, calc(100% - 36px));
-  margin: 22px auto 0;
   display: grid;
-  grid-template-columns: 1.55fr 1fr;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) 272px;
+  grid-template-areas:
+    "player details"
+    "comments details";
+  grid-template-rows: auto 1fr;
+  align-items: start;
+  gap: 44px;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 40px var(--gutter) 0;
 }
 
-.watch-player-panel,
-.watch-details-panel,
-.watch-comments-panel {
-  border: 1px solid #515151;
-  background: linear-gradient(180deg, rgba(69, 69, 69, 0.96) 0%, rgba(63, 63, 63, 0.96) 100%);
-}
+.watch-player-panel { grid-area: player; }
+.watch-details-panel { grid-area: details; }
+.watch-comments-panel { grid-area: comments; }
 
-.watch-player-panel {
-  padding: 14px;
-}
-
+/* Projection -------------------------------------------------------------- */
 .watch-player {
   width: 100%;
   aspect-ratio: 16 / 9;
-  border: 1px solid #535353;
-  background: #3a3a3a;
+  background: #000;
+  border: 1px solid var(--frame);
+  border-radius: var(--r-box);
+  overflow: hidden;
 }
 
 .watch-player-placeholder {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  flex-direction: column;
-  gap: 8px;
-  color: #b5b5b5;
-  letter-spacing: 0.08em;
-  font-size: 0.72rem;
-}
-
-.watch-details-panel {
-  display: grid;
-  grid-template-columns: 210px 1fr;
   gap: 14px;
-  padding: 14px;
+  padding: 26px;
+  text-align: center;
+  background: var(--bg-2);
+  color: var(--ink-3);
+  font-size: 0.66rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+.watch-player-placeholder::before {
+  content: "";
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--rule-strong);
+  border-top-color: var(--rose);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.watch-status { padding: 18px var(--gutter); color: var(--ink-2); font-size: 0.92rem; font-style: italic; }
+.watch-status-error {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--danger);
+  color: var(--danger);
+  font-style: normal;
 }
 
-.watch-cover-wrap {
-  min-height: 315px;
+/* The entry --------------------------------------------------------------- */
+.watch-details-panel {
+  position: sticky;
+  top: 104px;
+  height: fit-content;
+  padding: 22px;
+  background: var(--bg-2);
+  border: 1px solid var(--frame);
+  border-top: 2px solid var(--oxblood);
+  border-radius: var(--r-box);
 }
 
+.watch-cover-wrap { margin-bottom: 22px; }
 .watch-cover {
   width: 100%;
-  height: 100%;
+  aspect-ratio: 2 / 3;
   object-fit: cover;
-  border: 1px solid #545454;
+  background: var(--bg);
+  border: 1px solid var(--frame);
+  border-radius: var(--r-frame);
 }
-
-.watch-cover-fallback {
-  background: linear-gradient(160deg, #464646 0%, #4d4d4d 45%, #434343 100%);
-}
+.watch-cover-fallback { background: var(--bg); }
 
 .watch-meta h2 {
-  font-family: 'Playfair Display', serif;
-  margin: 0 0 8px;
-  font-size: 1.85rem;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.62rem;
+  font-style: italic;
+  line-height: 1.12;
+  margin-bottom: 14px;
 }
 
-.watch-meta-line,
-.watch-summary,
-.watch-credit {
-  margin: 0 0 10px;
-  color: #d4d4d4;
-  font-size: 0.73rem;
-  letter-spacing: 0.08em;
-  line-height: 1.6;
+.watch-meta-line {
+  margin-bottom: 7px;
+  font-size: 0.62rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
 }
 
 .watch-summary {
-  color: #dddddd;
+  margin: 20px 0;
+  font-size: 0.9rem;
+  font-style: italic;
+  line-height: 1.7;
+  color: var(--ink-2);
+  /* Synopses from archive.org are occasionally essay-length. */
+  display: -webkit-box;
+  -webkit-line-clamp: 12;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
+.watch-credit {
+  padding: 11px 0;
+  border-top: 1px solid var(--rule);
+  /* separates one credit from the next; the first needs no rule */
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 0.98rem;
+  color: var(--ink-2);
+}
+.watch-credit:first-of-type { border-top: 0; padding-top: 4px; }
+
+.watch-credit strong {
+  display: block;
+  margin-bottom: 3px;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.56rem;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* Remarks ----------------------------------------------------------------- */
 .watch-comments-panel {
-  grid-column: 1 / -1;
-  padding: 16px;
+  padding: 26px;
+  background: var(--bg-2);
+  border: 1px solid var(--frame);
+  border-radius: var(--r-box);
 }
 
 .watch-comments-panel h3 {
-  margin: 0 0 12px;
-  font-family: 'Playfair Display', serif;
-  font-size: 1.35rem;
+  margin-bottom: 26px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule-strong);
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.02rem;
+  font-weight: 400;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
 }
 
-.watch-comment-form {
-  display: grid;
-  gap: 10px;
-}
+.watch-comment-form { display: flex; flex-direction: column; gap: 16px; margin-bottom: 38px; }
 
 .watch-comment-form textarea {
+  width: 100%;
+  min-height: 74px;
+  padding: 0 0 10px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--rule-strong);
+  border-radius: 0;
+  color: var(--ink);
+  font-size: 0.95rem;
+  line-height: 1.65;
   resize: vertical;
-  min-height: 84px;
-  border: 1px solid #595959;
-  background: #414141;
-  color: #ececec;
-  font-family: 'Cinzel', serif;
-  letter-spacing: 0.07em;
-  font-size: 0.72rem;
-  padding: 10px;
+  transition: border-color 0.16s var(--ease);
 }
+.watch-comment-form textarea::placeholder { color: var(--ink-3); font-style: italic; }
+.watch-comment-form textarea:focus { outline: none; border-bottom-color: var(--oxblood-hi); }
 
 .watch-comment-form button {
-  justify-self: start;
-  border: 1px solid #5d5d5d;
-  background: #494949;
-  color: #e8e8e8;
+  align-self: flex-start;
+  padding: 11px 26px;
+  background: var(--oxblood);
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.26em;
   text-transform: uppercase;
-  letter-spacing: 0.16em;
-  font-size: 0.64rem;
-  padding: 8px 14px;
-  cursor: pointer;
 }
+.watch-comment-form button:hover:not(:disabled) { background: var(--oxblood-hi); }
+.watch-comment-form button:disabled { opacity: 0.35; cursor: not-allowed; }
 
-.watch-comment-form button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.watch-comment-list {
-  margin-top: 14px;
-  display: grid;
-  gap: 10px;
-}
+.watch-comment-list { display: flex; flex-direction: column; }
 
 .watch-comment {
-  border: 1px solid #525252;
-  padding: 10px;
-  background: rgba(65, 65, 65, 0.8);
+  padding: 20px 0;
+  border-top: 1px solid var(--rule);
+  animation: riseIn 0.3s var(--ease) both;
 }
+.watch-comment:first-child { border-top: 0; padding-top: 0; }
 
 .watch-comment-author {
-  margin: 0 0 6px;
-  color: #f3f3f3;
-  font-size: 0.62rem;
-  letter-spacing: 0.18em;
+  margin-bottom: 7px;
+  font-size: 0.58rem;
+  font-weight: 500;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
+  color: var(--ink-3);
+}
+.watch-comment p:not(.watch-comment-author) {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.04rem;
+  line-height: 1.6;
+  color: var(--ink);
+  word-break: break-word;
 }
 
-.watch-empty {
-  color: #b1b1b1;
-  font-size: 0.72rem;
-}
+.watch-empty { padding: 26px 0; color: var(--ink-3); font-size: 0.94rem; font-style: italic; }
 
-@media (max-width: 980px) {
+/* Responsive -------------------------------------------------------------- */
+@media (max-width: 1040px) {
   .watch-main {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "player" "details" "comments";
+    gap: 36px;
   }
-
-  .watch-details-panel {
-    grid-template-columns: 1fr;
-  }
-
-  .watch-cover-wrap {
-    min-height: 420px;
-  }
+  .watch-details-panel { position: static; }
+  .watch-cover-wrap { max-width: 190px; }
 }
 
-@media (max-width: 640px) {
-  .watch-header {
-    padding: 0 14px;
-  }
-
-  .watch-main,
-  .watch-status {
-    width: calc(100% - 18px);
-  }
-
-  .watch-cover-wrap {
-    min-height: 320px;
-  }
+@media (max-width: 680px) {
+  .watch-header { padding: 14px 20px 12px; gap: 12px; }
+  .watch-brand { font-size: 1.28rem; }
+  .watch-main { padding: 28px 20px 0; }
+  .watch-cover-wrap { max-width: 148px; }
+  .watch-comment-form button { width: 100%; }
 }

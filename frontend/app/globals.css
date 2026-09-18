@@ -1,15 +1,374 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* ==========================================================================
+   Lumière — Cinémathèque
+   A repertory-cinema programme, not a web app. Rules carry the structure;
+   there are no cards, no fills, no shadows. Oxblood is reserved for the few
+   marks that must be emphatic.
+   ========================================================================== */
+
+:root {
+  /* Field — warm near-blacks, plum undertone, never blue-grey */
+  --bg: #120a0f;
+  --bg-2: #1d1119;
+
+  /* Hairlines inside a block */
+  --rule: #3d2631;
+  --rule-strong: #5b3948;
+  /* Visible border around a block — what separates one element from the next */
+  --frame: #6b4353;
+
+  /* Ink */
+  --ink: #f2e6ea;
+  --ink-2: #c6aab6;
+  --ink-3: #9a8090;
+
+  /* Oxblood and company */
+  --oxblood: #7a1628;
+  --oxblood-hi: #8e1c2e;
+  --plum: #5b2a55;
+  --rose: #d98a9b;
+  --brass: #c9a227;
+
+  --danger: #e2647a;
+  --success: #6aa87f;
+
+  --measure: 62ch;
+  --gutter: clamp(18px, 5vw, 64px);
+  --r-frame: 10px;   /* framed stills and portraits */
+  --r-box: 7px;      /* panels and cards */
+
+  --ease: cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+* { box-sizing: border-box; }
 
 html, body {
-  background: #3a3a3a;
   margin: 0;
   padding: 0;
   overflow-x: hidden;
-  scrollbar-width: none;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
 }
 
-body::-webkit-scrollbar {
-  display: none;
+h1, h2, h3, h4 {
+  margin: 0;
+  font-family: var(--font-display), Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  line-height: 1.15;
+  letter-spacing: 0;
+}
+
+p { margin: 0; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+button, input, select, textarea { font: inherit; color: inherit; }
+
+::selection { background: var(--oxblood); color: var(--ink); }
+
+* { scrollbar-width: thin; scrollbar-color: var(--rule-strong) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--rule-strong); border: 3px solid var(--bg); }
+
+:focus-visible { outline: 1px solid var(--rose); outline-offset: 3px; }
+
+@keyframes riseIn { from { opacity: 0; } to { opacity: 1; } }
+
+.f1, .f2, .f3, .f4, .f5, .f6 { opacity: 0; animation: riseIn 0.5s var(--ease) forwards; }
+.f1 { animation-delay: 0.02s; }
+.f2 { animation-delay: 0.08s; }
+.f3 { animation-delay: 0.14s; }
+.f4 { animation-delay: 0.20s; }
+.f5 { animation-delay: 0.26s; }
+.f6 { animation-delay: 0.32s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .f1, .f2, .f3, .f4, .f5, .f6 { animation: none; opacity: 1; }
+  * { transition: none !important; }
+}
+
+.scanlines, .grain, .corner, .tl, .tr, .bl, .br, .vignette { display: none; }
+/* .flicker carries no styles now. It must NOT set `animation: none`, which
+   would cancel the .f1-.f6 fade-in and leave the element stuck at opacity 0. */
+
+/* --------------------------------------------------------------------------
+   Type
+   -------------------------------------------------------------------------- */
+
+/* The wordmark: display serif, italic, never tracked out. */
+.brand, .metallic {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 400;
+  font-style: italic;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
+}
+
+/* Section mark: a tracked label with a rule running off to the right.
+   This is the one repeating device of the whole design. */
+.eyebrow, .section-label {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.eyebrow::after, .section-label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+.subtitle { color: var(--ink-2); font-size: 0.94rem; max-width: var(--measure); }
+
+.divider, .footer-divider, .section-divider {
+  height: 1px;
+  border: 0;
+  margin: 28px 0;
+  background: var(--rule);
+}
+
+/* It is the separator before the card's footer line, so the text needs no
+   margin of its own on top of it. */
+.footer-divider { margin: 30px 0 0; }
+
+/* --------------------------------------------------------------------------
+   Auth — a title page, not a modal
+   -------------------------------------------------------------------------- */
+.login-page, .register-page, .forgot-page, .reset-page, .settings-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 56px var(--gutter);
+  background: var(--bg);
+}
+
+.settings-page { align-items: flex-start; }
+
+/* A bordered card, centred, with an oxblood rule capping it. */
+.login-card, .register-card, .forgot-card, .reset-card, .settings-card {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  padding: 40px 38px 34px;
+  background: var(--bg-2);
+  border: 1px solid var(--frame);
+  border-top: 2px solid var(--oxblood);
+  border-radius: var(--r-box);
+  text-align: center;
+}
+
+/* Fields read better ranged left inside the centred card. */
+.login-card .field, .register-card .field, .forgot-card .field,
+.reset-card .field, .settings-card .field { text-align: left; }
+
+.register-card { max-width: 520px; }
+.settings-card { max-width: 680px; }
+
+.login-header, .register-header, .forgot-header, .reset-header, .settings-header {
+  margin-bottom: 34px;
+}
+
+.login-header .brand, .register-header .brand, .forgot-header .brand,
+.reset-header .brand, .settings-header .brand {
+  display: block;
+  font-size: 2.7rem;
+  line-height: 1;
+  margin: 14px 0 12px;
+}
+
+.login-header .subtitle, .register-header .subtitle, .forgot-header .subtitle,
+.reset-header .subtitle, .settings-header .subtitle { margin-top: 12px; margin-inline: auto; }
+
+/* Inside a card, labels are plain and centred — the card frames them, so the
+   trailing rule of the section-mark motif is only noise here. */
+.login-card .section-label, .register-card .section-label, .forgot-card .section-label,
+.reset-card .section-label, .settings-card .section-label,
+.login-card .eyebrow, .register-card .eyebrow, .forgot-card .eyebrow,
+.reset-card .eyebrow, .settings-card .eyebrow { justify-content: center; }
+
+.login-card .section-label::after, .register-card .section-label::after,
+.forgot-card .section-label::after, .reset-card .section-label::after,
+.settings-card .section-label::after,
+.login-card .eyebrow::after, .register-card .eyebrow::after, .forgot-card .eyebrow::after,
+.reset-card .eyebrow::after, .settings-card .eyebrow::after { display: none; }
+
+/* The header runs straight into the section mark; a rule between them separates
+   nothing that the spacing does not already separate. */
+.login-header .divider, .register-header .divider, .forgot-header .divider,
+.reset-header .divider, .settings-header .divider { display: none; }
+
+.login-card .section-label, .register-card .section-label, .forgot-card .section-label,
+.reset-card .section-label, .settings-card .section-label { margin-bottom: 26px; }
+
+.login-form, .register-form, .forgot-form, .reset-form, .settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Fields — ruled lines, like a form on paper -------------------------------- */
+.field { display: flex; flex-direction: column; gap: 7px; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+
+.field-label {
+  font-size: 0.63rem;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.field-input, .field-select {
+  width: 100%;
+  padding: 7px 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--rule-strong);
+  border-radius: 0;
+  color: var(--ink);
+  font-size: 1rem;
+  transition: border-color 0.16s var(--ease);
+}
+
+.field-select {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 24px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%23856975' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 2px center;
+}
+
+.field-input::placeholder {
+  color: var(--ink-3);
+  opacity: 0.55;
+  font-size: 0.82rem;
+  letter-spacing: 0.06em;
+}
+.field-input:hover, .field-select:hover { border-bottom-color: var(--ink-3); }
+.field-input:focus, .field-select:focus { outline: none; border-bottom-color: var(--oxblood-hi); }
+
+/* Actions ------------------------------------------------------------------ */
+.submit-btn, .avatar-upload-btn, .hero-btn, .row-more, .search-btn,
+.watch-comment-form button, .oauth-btn, .logout-btn, .header-logout-btn {
+  font-family: var(--font-sans), sans-serif;
+  cursor: pointer;
+  transition: background 0.16s var(--ease), border-color 0.16s var(--ease), color 0.16s var(--ease);
+}
+
+/* The single filled element in the whole design — a ticket stub. */
+.submit-btn {
+  margin-top: 6px;
+  padding: 14px 20px;
+  background: var(--oxblood);
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+}
+.submit-btn:hover:not(:disabled) { background: var(--oxblood-hi); }
+.submit-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+/* Everything else is a ruled text action. */
+/* `oauth-divider` is an <hr> in the markup; the label under it already
+   announces the section, so the rule itself is redundant. */
+.oauth-divider { display: none; }
+.oauth-label {
+  margin: 32px 0 16px;
+  text-align: center;
+  font-size: 0.62rem;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.oauth-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+
+.oauth-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 11px 14px;
+  background: transparent;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-box);
+  color: var(--ink-2);
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.oauth-btn:hover { border-color: var(--rose); color: var(--ink); }
+
+/* Notices ------------------------------------------------------------------ */
+.error-msg {
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--danger);
+  color: var(--danger);
+  font-size: 0.86rem;
+}
+
+.success-msg, .success-box {
+  padding: 2px 0 2px 14px;
+  border-left: 2px solid var(--success);
+  color: var(--success);
+  font-size: 0.88rem;
+}
+.success-sub { margin-top: 5px; color: var(--ink-2); font-size: 0.83rem; }
+
+/* Card footer -------------------------------------------------------------- */
+.register-text, .login-text, .back-text {
+  margin-top: 20px;
+  font-size: 0.86rem;
+  color: var(--ink-2);
+}
+.forgot-row { display: flex; justify-content: center; margin-top: -14px; }
+
+.register-link, .login-link, .back-link, .forgot-link {
+  color: var(--rose);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.16s var(--ease);
+}
+.register-link:hover, .login-link:hover, .back-link:hover, .forgot-link:hover {
+  border-bottom-color: var(--rose);
+}
+.forgot-link { font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+.forgot-link:hover { color: var(--rose); border-bottom-color: var(--rose); }
+
+/* In the settings foot this sits beside the logout control, so it takes the
+   same tracked-caps treatment rather than reading as body copy. */
+.back-link-wrap .back-link {
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--rule-strong);
+  padding-bottom: 4px;
+}
+.back-link-wrap .back-link:hover { color: var(--ink); border-bottom-color: var(--rose); }
+
+@media (max-width: 560px) {
+  .login-page, .register-page, .forgot-page, .reset-page, .settings-page { padding: 34px 16px; }
+  .login-card, .register-card, .forgot-card, .reset-card, .settings-card { padding: 30px 22px 26px; }
+  .login-header .brand, .register-header .brand, .forgot-header .brand,
+  .reset-header .brand, .settings-header .brand { font-size: 2.1rem; }
+  .field-row { grid-template-columns: 1fr; gap: 26px; }
+  .oauth-buttons { grid-template-columns: 1fr; gap: 18px; }
 }
