@@ -1,8 +1,14 @@
+import asyncio
+import base64
+import ipaddress
 import os
+import socket
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import Response
 from sqlalchemy import select, func, tuple_, cast, Float as SAFloat
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
@@ -24,6 +30,113 @@ TMDB_BASE_URL = "https://api.themoviedb.org/3"
 # royalty-free / legally distributable, as the subject requires.
 SUPPORTED_SOURCES = {"archive", "peertube"}
 DEFAULT_SOURCE = "archive"
+
+# ── Thumbnail proxy ───────────────────────────────────────────────────────────
+# Posters live on archive.org and on arbitrary federated PeerTube instances.
+# Letting the browser load them directly sets third-party cookies (DDoS-Guard
+# sends __ddg*) and trips Firefox's OpaqueResponseBlocking when a host answers
+# an <img> with an HTML challenge page. Fetching them here keeps every request
+# same-origin and lets us reject anything that is not actually an image.
+
+MAX_THUMBNAIL_BYTES = 5 * 1024 * 1024
+MAX_THUMBNAIL_REDIRECTS = 3
+ALLOWED_THUMBNAIL_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp", "image/avif"}
+
+# A poster that cannot be fetched degrades to a transparent pixel rather than
+# a 404. A failed <img> logs "Failed to load resource" in Chrome, and the
+# subject forbids any console error.
+_TRANSPARENT_PIXEL = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+def _placeholder_image() -> Response:
+    return Response(
+        content=_TRANSPARENT_PIXEL,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff"},
+    )
+
+
+async def _is_publicly_routable(hostname: str) -> bool:
+    """Reject anything resolving to a private, loopback or link-local address.
+
+    The URL originates from a third-party search result, so without this the
+    endpoint would be an SSRF gateway into the compose network.
+    """
+    loop = asyncio.get_running_loop()
+    try:
+        infos = await loop.getaddrinfo(hostname, None)
+    except (socket.gaierror, UnicodeError):
+        return False
+
+    for info in infos:
+        try:
+            address = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            return False
+        if (
+            address.is_private
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_reserved
+            or address.is_multicast
+            or address.is_unspecified
+        ):
+            return False
+    return bool(infos)
+
+
+async def _validate_thumbnail_url(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise HTTPException(status_code=400, detail="Only https image URLs are allowed")
+    if not await _is_publicly_routable(parsed.hostname):
+        raise HTTPException(status_code=400, detail="Host is not publicly routable")
+    return url
+
+
+@router.get("/movies/thumbnail")
+async def proxy_thumbnail(request: Request, url: str = Query(..., max_length=2048)):
+    """Same-origin passthrough for remote poster images."""
+    get_current_user_id(request)
+
+    target = await _validate_thumbnail_url(url)
+
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=False) as client:
+        for _ in range(MAX_THUMBNAIL_REDIRECTS + 1):
+            try:
+                response = await client.get(target, headers={"Accept": "image/*"})
+            except httpx.HTTPError:
+                return _placeholder_image()
+
+            if response.status_code in (301, 302, 303, 307, 308):
+                location = response.headers.get("location")
+                if not location:
+                    return _placeholder_image()
+                # Re-validate every hop: a redirect must not land on an internal host.
+                target = await _validate_thumbnail_url(str(response.url.join(location)))
+                continue
+            break
+        else:
+            return _placeholder_image()
+
+    if response.status_code != 200:
+        return _placeholder_image()
+
+    media_type = response.headers.get("content-type", "").split(";")[0].strip().lower()
+    if media_type not in ALLOWED_THUMBNAIL_TYPES:
+        return _placeholder_image()
+
+    body = response.content
+    if len(body) > MAX_THUMBNAIL_BYTES:
+        return _placeholder_image()
+
+    return Response(
+        content=body,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400", "X-Content-Type-Options": "nosniff"},
+    )
 
 
 def _as_int(value: object) -> int | None:

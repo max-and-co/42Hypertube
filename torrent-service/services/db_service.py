@@ -1,12 +1,15 @@
 import asyncio
-from datetime import datetime, timezone
+import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import text
 
 import runtime_state
-from config import MEDIA_ROOT, RETENTION_DAYS, SUBTITLES_ROOT
+from config import MEDIA_ROOT, RETENTION_DAYS
+
+logger = logging.getLogger(__name__)
 
 
 async def db_execute(statement: str, params: dict[str, Any]) -> None:
@@ -23,6 +26,14 @@ async def db_fetch_one(statement: str, params: dict[str, Any]) -> dict[str, Any]
         result = await conn.execute(text(statement), params)
         row = result.mappings().first()
         return dict(row) if row else None
+
+
+async def db_fetch_all(statement: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+    if runtime_state.DB_ENGINE is None:
+        return []
+    async with runtime_state.DB_ENGINE.connect() as conn:
+        result = await conn.execute(text(statement), params)
+        return [dict(row) for row in result.mappings().all()]
 
 
 async def update_movie_state(movie_id: int, **fields: Any) -> None:
@@ -48,46 +59,60 @@ async def fetch_user_pref_language(user_id: int) -> str:
     return value or "en"
 
 
-def _delete_stale_files(root: Path, max_age_seconds: int) -> None:
-    for path in root.rglob("*"):
-        if not path.is_file():
-            continue
-        try:
-            age_seconds = datetime.now(timezone.utc).timestamp() - path.stat().st_mtime
-            if age_seconds > max_age_seconds:
-                path.unlink(missing_ok=True)
-        except OSError:
-            continue
+def _movie_dir_for(video_path: str) -> Path | None:
+    """Map a stored video_path back to the per-movie download directory.
+
+    Guards against deleting anything outside MEDIA_ROOT.
+    """
+    try:
+        resolved = Path(video_path).resolve()
+        root = MEDIA_ROOT.resolve()
+        relative = resolved.relative_to(root)
+    except (ValueError, OSError):
+        return None
+
+    if not relative.parts:
+        return None
+    return root / relative.parts[0]
+
+
+async def purge_unwatched_movies() -> int:
+    """Erase movies nobody has watched for RETENTION_DAYS.
+
+    The subject says a movie unwatched for a month is erased, so retention is
+    keyed on last_watched_at per movie - never on file mtime, which would also
+    delete a film watched yesterday that happens to have downloaded long ago.
+    """
+    stale = await db_fetch_all(
+        """
+        SELECT id, video_path
+        FROM movies
+        WHERE video_path IS NOT NULL
+          AND last_watched_at IS NOT NULL
+          AND last_watched_at < (NOW() - make_interval(days => :days))
+        """,
+        {"days": RETENTION_DAYS},
+    )
+
+    for row in stale:
+        directory = _movie_dir_for(str(row.get("video_path") or ""))
+        if directory is not None and directory.exists():
+            shutil.rmtree(directory, ignore_errors=True)
+            logger.info("Erased unwatched movie", extra={"movie_id": row["id"], "path": str(directory)})
+
+        await db_execute(
+            "UPDATE movies SET stream_status = 'not_started', video_path = NULL WHERE id = :id",
+            {"id": row["id"]},
+        )
+
+    return len(stale)
 
 
 async def retention_cleanup_loop() -> None:
     while True:
         try:
-            await db_execute(
-                """
-                UPDATE movies
-                SET stream_status = 'not_started', video_path = NULL
-                WHERE last_watched_at IS NOT NULL
-                  AND last_watched_at < (NOW() - (:days || ' days')::interval)
-                """,
-                {"days": RETENTION_DAYS},
-            )
-
-            stale_rows = await db_fetch_one(
-                """
-                SELECT COUNT(*)::int AS total
-                FROM movies
-                WHERE last_watched_at IS NOT NULL
-                  AND last_watched_at < (NOW() - (:days || ' days')::interval)
-                """,
-                {"days": RETENTION_DAYS},
-            )
-
-            if stale_rows and int(stale_rows.get("total") or 0) >= 0:
-                max_age_seconds = RETENTION_DAYS * 24 * 60 * 60
-                _delete_stale_files(MEDIA_ROOT, max_age_seconds)
-                _delete_stale_files(SUBTITLES_ROOT, max_age_seconds)
+            await purge_unwatched_movies()
         except Exception:
-            pass
+            logger.exception("Retention cleanup failed")
 
         await asyncio.sleep(6 * 60 * 60)

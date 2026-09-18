@@ -67,6 +67,15 @@ function parseIntOrNull(value: string | null): number | null {
   return Number.isInteger(n) ? n : null;
 }
 
+// Remote posters are proxied through our own origin. Loading them directly
+// sets third-party cookies and lets a host answer an <img> with an HTML
+// challenge page, which Firefox then blocks (OpaqueResponseBlocking).
+function posterUrl(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  if (!/^https:\/\//i.test(raw)) return undefined;
+  return `/api/movies/thumbnail?url=${encodeURIComponent(raw)}`;
+}
+
 export default function WatchPage() {
   const params = useParams<{ source: string; id: string }>();
   const query = useSearchParams();
@@ -254,7 +263,7 @@ export default function WatchPage() {
         <main className="watch-main">
           <section className="watch-player-panel">
             {streamSrc ? (
-              <video key={streamSrc} className="watch-player" controls playsInline poster={movie.cover_image || movie.thumbnail || undefined}>
+              <video key={streamSrc} className="watch-player" controls playsInline poster={posterUrl(movie.cover_image || movie.thumbnail)}>
                 <source src={streamSrc} />
                 {(session?.subtitle_tracks || []).map((track) => (
                   <track
@@ -279,7 +288,7 @@ export default function WatchPage() {
             <div className="watch-cover-wrap">
               {movie.cover_image || movie.thumbnail ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img className="watch-cover" src={movie.cover_image || movie.thumbnail || undefined} alt={movie.title} />
+                <img className="watch-cover" src={posterUrl(movie.cover_image || movie.thumbnail)} alt={movie.title} />
               ) : (
                 <div className="watch-cover watch-cover-fallback" />
               )}

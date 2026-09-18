@@ -45,6 +45,15 @@ const POSTER_GRADIENTS = [
   "linear-gradient(160deg, #424242 0%, #464646 50%, #3a3a4c 100%)",
 ];
 
+// Remote posters are proxied through our own origin. Loading them directly
+// sets third-party cookies and lets a host answer an <img> with an HTML
+// challenge page, which Firefox then blocks (OpaqueResponseBlocking).
+function posterUrl(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  if (!/^https:\/\//i.test(raw)) return undefined;
+  return `/api/movies/thumbnail?url=${encodeURIComponent(raw)}`;
+}
+
 export default function Home() {
   const { lang, setLang, t } = useLanguage();
 
@@ -352,7 +361,7 @@ export default function Home() {
         <div className="hero-bg">
           {heroMovie?.thumbnail ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={heroMovie.thumbnail} alt={heroMovie.title} className="hero-bg-image" />
+            <img src={posterUrl(heroMovie.thumbnail)} alt={heroMovie.title} className="hero-bg-image" />
           ) : null}
           <div className="hero-bg-pattern" />
         </div>
@@ -467,7 +476,7 @@ export default function Home() {
                 >
                   {movie.thumbnail ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={movie.thumbnail} alt={movie.title} className="movie-poster-image" loading="lazy" />
+                    <img src={posterUrl(movie.thumbnail)} alt={movie.title} className="movie-poster-image" loading="lazy" />
                   ) : (
                     <div className="movie-poster-inner" style={{ background: POSTER_GRADIENTS[i % POSTER_GRADIENTS.length] }}>
                       <p className="movie-poster-year">{movie.year ?? "N/A"}</p>

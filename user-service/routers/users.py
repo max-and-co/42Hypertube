@@ -14,6 +14,36 @@ router = APIRouter()
 
 os.makedirs("uploads", exist_ok=True)
 
+# An avatar is only ever stored with an extension we derive ourselves from the
+# file's magic bytes. The browser-supplied filename and Content-Type are both
+# attacker-controlled: without this, uploading HTML named "x.html" as
+# "image/png" would be served back as text/html from our own origin.
+MAX_AVATAR_BYTES = 2 * 1024 * 1024
+
+_IMAGE_SIGNATURES: list[tuple[bytes, str, str]] = [
+    (b"\x89PNG\r\n\x1a\n", "png", "image/png"),
+    (b"\xff\xd8\xff", "jpg", "image/jpeg"),
+    (b"GIF87a", "gif", "image/gif"),
+    (b"GIF89a", "gif", "image/gif"),
+]
+
+AVATAR_MEDIA_TYPES = {
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+}
+
+
+def sniff_image(content: bytes) -> tuple[str, str] | None:
+    """Return (extension, media_type) from magic bytes, or None if not an image."""
+    for signature, extension, media_type in _IMAGE_SIGNATURES:
+        if content.startswith(signature):
+            return extension, media_type
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "webp", "image/webp"
+    return None
+
 
 @router.get("/")
 async def list_users(request: Request, db: AsyncSession = Depends(get_db)):
@@ -99,14 +129,20 @@ async def upload_avatar(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File must be an image")
+    content = await file.read(MAX_AVATAR_BYTES + 1)
+    if len(content) > MAX_AVATAR_BYTES:
+        raise HTTPException(status_code=413, detail="Image must be 2 MB or smaller")
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-    ext = file.filename.rsplit(".", 1)[-1].lower() if file.filename and "." in file.filename else "jpg"
+    sniffed = sniff_image(content)
+    if sniffed is None:
+        raise HTTPException(status_code=400, detail="File must be a PNG, JPEG, GIF or WebP image")
+
+    ext, _ = sniffed
     filename = f"{uuid.uuid4()}.{ext}"
     path = os.path.join("uploads", filename)
 
-    content = await file.read()
     with open(path, "wb") as f:
         f.write(content)
 
@@ -139,10 +175,21 @@ async def change_password(request: Request, data: ChangePasswordRequest, db: Asy
 async def get_avatar(filename: str):
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    media_type = AVATAR_MEDIA_TYPES.get(ext)
+    if media_type is None:
+        raise HTTPException(status_code=404, detail="Not found")
+
     path = os.path.join("uploads", filename)
     if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="Not found")
-    return FileResponse(path)
+
+    # Never let the extension decide the type, and refuse to be framed/sniffed.
+    return FileResponse(
+        path,
+        media_type=media_type,
+        headers={"X-Content-Type-Options": "nosniff", "Content-Disposition": "inline"},
+    )
 
 
 @router.get("/profile/{user_id}")
