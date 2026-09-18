@@ -1,46 +1,82 @@
-import asyncio
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 from config import (
     ARCHIVE_ADVANCEDSEARCH_URL,
-    MAX_OMDB_ENRICH,
+    DEFAULT_SOURCE,
     MAX_SEARCH_LIMIT,
     NOISY_ARCHIVE_TERMS,
     OMDB_API_KEY,
     OMDB_BASE_URL,
-    YTS_LIST_MOVIES_URL,
-    YTS_LIST_MOVIES_FALLBACK_URLS,
+    PEERTUBE_BROWSE_MIN_DURATION,
+    PEERTUBE_FREE_LICENCES,
+    PEERTUBE_SEARCH_URL,
 )
-from services.common import as_float, as_int, as_text, as_text_list, coalesce_int, truncate_text
+from services.common import as_float, as_int, as_text, as_text_list, truncate_text
 
 
-YTS_REQUEST_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (X11; Linux x86_64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0 Safari/537.36"
-    ),
-    "Accept": "application/json,text/plain,*/*",
-}
-
-YTS_BUILTIN_FALLBACK_URLS = [
-    "https://yts.lt/api/v2/list_movies.json",
-    "https://yts.am/api/v2/list_movies.json",
-    "https://yts.rs/api/v2/list_movies.json",
-]
+# ── Shared filtering / sorting ────────────────────────────────────────────────
 
 
-def _candidate_yts_urls() -> list[str]:
-    candidates: list[str] = [YTS_LIST_MOVIES_URL]
-    for url in YTS_LIST_MOVIES_FALLBACK_URLS:
-        if url not in candidates:
-            candidates.append(url)
-    for url in YTS_BUILTIN_FALLBACK_URLS:
-        if url not in candidates:
-            candidates.append(url)
-    return candidates
+def _apply_filters(
+    movies: list[dict[str, Any]],
+    genre: str | None,
+    year_min: int | None,
+    year_max: int | None,
+    imdb_min: float | None,
+) -> list[dict[str, Any]]:
+    normalized_genre = (genre or "").strip().lower()
+    filtered: list[dict[str, Any]] = []
+
+    for movie in movies:
+        if normalized_genre:
+            genres = [str(value).lower() for value in (movie.get("genres") or [])]
+            if not any(normalized_genre in value for value in genres):
+                continue
+
+        year = as_int(movie.get("year"))
+        if year_min is not None and (year is None or year < year_min):
+            continue
+        if year_max is not None and (year is None or year > year_max):
+            continue
+
+        rating = as_float(movie.get("imdb_rating"))
+        if imdb_min is not None and (rating is None or rating < imdb_min):
+            continue
+
+        filtered.append(movie)
+
+    return filtered
+
+
+def _sort_movies(movies: list[dict[str, Any]], sort_by: str, sort_dir: str) -> list[dict[str, Any]]:
+    reverse = sort_dir.lower() == "desc"
+
+    if sort_by == "title":
+        return sorted(movies, key=lambda movie: str(movie.get("title") or "").lower(), reverse=reverse)
+    if sort_by == "year":
+        return sorted(movies, key=lambda movie: as_int(movie.get("year")) or 0, reverse=reverse)
+    if sort_by == "imdb_rating":
+        return sorted(movies, key=lambda movie: as_float(movie.get("imdb_rating")) or 0.0, reverse=reverse)
+    if sort_by == "seeders":
+        return sorted(movies, key=lambda movie: as_int(movie.get("seeders")) or 0, reverse=reverse)
+    if sort_by == "peers":
+        return sorted(movies, key=lambda movie: as_int(movie.get("peers")) or 0, reverse=reverse)
+
+    return sorted(
+        movies,
+        key=lambda movie: (
+            as_int(movie.get("downloads")) or 0,
+            as_int(movie.get("seeders")) or 0,
+            as_int(movie.get("peers")) or 0,
+        ),
+        reverse=reverse,
+    )
+
+
+# ── Internet Archive ──────────────────────────────────────────────────────────
 
 
 def _build_archive_query(query: str) -> str:
@@ -119,62 +155,6 @@ def _is_reasonable_archive_result(movie: dict[str, Any], has_query: bool) -> boo
     return True
 
 
-def _apply_filters(
-    movies: list[dict[str, Any]],
-    genre: str | None,
-    year_min: int | None,
-    year_max: int | None,
-    imdb_min: float | None,
-) -> list[dict[str, Any]]:
-    normalized_genre = (genre or "").strip().lower()
-    filtered: list[dict[str, Any]] = []
-
-    for movie in movies:
-        if normalized_genre:
-            genres = [str(value).lower() for value in (movie.get("genres") or [])]
-            if not any(normalized_genre in value for value in genres):
-                continue
-
-        year = as_int(movie.get("year"))
-        if year_min is not None and (year is None or year < year_min):
-            continue
-        if year_max is not None and (year is None or year > year_max):
-            continue
-
-        rating = as_float(movie.get("imdb_rating"))
-        if imdb_min is not None and (rating is None or rating < imdb_min):
-            continue
-
-        filtered.append(movie)
-
-    return filtered
-
-
-def _sort_movies(movies: list[dict[str, Any]], sort_by: str, sort_dir: str) -> list[dict[str, Any]]:
-    reverse = sort_dir.lower() == "desc"
-
-    if sort_by == "title":
-        return sorted(movies, key=lambda movie: str(movie.get("title") or "").lower(), reverse=reverse)
-    if sort_by == "year":
-        return sorted(movies, key=lambda movie: as_int(movie.get("year")) or 0, reverse=reverse)
-    if sort_by == "imdb_rating":
-        return sorted(movies, key=lambda movie: as_float(movie.get("imdb_rating")) or 0.0, reverse=reverse)
-    if sort_by == "seeders":
-        return sorted(movies, key=lambda movie: as_int(movie.get("seeders")) or 0, reverse=reverse)
-    if sort_by == "peers":
-        return sorted(movies, key=lambda movie: as_int(movie.get("peers")) or 0, reverse=reverse)
-
-    return sorted(
-        movies,
-        key=lambda movie: (
-            as_int(movie.get("downloads")) or 0,
-            as_int(movie.get("seeders")) or 0,
-            as_int(movie.get("peers")) or 0,
-        ),
-        reverse=reverse,
-    )
-
-
 async def _search_archive(
     q: str,
     page: int,
@@ -241,71 +221,160 @@ async def _search_archive(
             "imdb_min": imdb_min,
         },
         "source_provider": "archive",
+        "provider_used": ARCHIVE_ADVANCEDSEARCH_URL,
         "results": sorted_results,
     }
 
 
-def _normalize_yts_movie(movie: dict[str, Any], omdb: dict[str, Any] | None = None) -> dict[str, Any]:
-    torrents = movie.get("torrents") if isinstance(movie.get("torrents"), list) else []
-    seeders = max((as_int(t.get("seeds")) or 0) for t in torrents) if torrents else None
-    peers = max((as_int(t.get("peers")) or 0) for t in torrents) if torrents else None
+# ── PeerTube (via SepiaSearch) ────────────────────────────────────────────────
 
-    best_torrent = None
-    if torrents:
-        best_torrent = max(
-            (torrent for torrent in torrents if isinstance(torrent, dict)),
-            key=lambda torrent: ((as_int(torrent.get("seeds")) or 0), (as_int(torrent.get("peers")) or 0)),
-            default=None,
-        )
 
-    yts_rating = as_float(movie.get("rating"))
-    omdb_rating = as_float((omdb or {}).get("imdbRating"))
-    imdb_rating = omdb_rating if omdb_rating is not None else yts_rating
+def peertube_external_id(host: str, uuid: str) -> str:
+    """PeerTube is federated, so an id is only unique together with its host."""
+    return f"{host}:{uuid}"
 
-    year = coalesce_int((omdb or {}).get("Year"), movie.get("year"))
-    title = as_text((omdb or {}).get("Title")) or as_text(movie.get("title")) or "Untitled"
-    genre_text = as_text((omdb or {}).get("Genre"))
-    genres = [genre.strip() for genre in genre_text.split(",")] if genre_text else movie.get("genres") or []
 
-    poster = as_text((omdb or {}).get("Poster"))
-    if poster == "N/A":
-        poster = None
+def split_peertube_external_id(external_id: str) -> tuple[str, str]:
+    host, _, uuid = external_id.partition(":")
+    return host.strip(), uuid.strip()
+
+
+def _peertube_host(video: dict[str, Any]) -> str:
+    url = as_text(video.get("url"))
+    if url:
+        parsed = urlparse(url)
+        if parsed.netloc:
+            return parsed.netloc
+
+    account = video.get("account")
+    if isinstance(account, dict):
+        return as_text(account.get("host")) or ""
+    return ""
+
+
+def _peertube_year(video: dict[str, Any]) -> int | None:
+    for key in ("originallyPublishedAt", "publishedAt"):
+        raw = as_text(video.get(key))
+        if raw and len(raw) >= 4 and raw[:4].isdigit():
+            return int(raw[:4])
+    return None
+
+
+def _normalize_peertube_video(video: dict[str, Any]) -> dict[str, Any] | None:
+    host = _peertube_host(video)
+    uuid = as_text(video.get("uuid"))
+    if not host or not uuid:
+        return None
+
+    external_id = peertube_external_id(host, uuid)
+    thumbnail_path = as_text(video.get("thumbnailPath"))
+    thumbnail = f"https://{host}{thumbnail_path}" if thumbnail_path else None
+
+    category = video.get("category")
+    genres: list[str] = []
+    if isinstance(category, dict):
+        label = as_text(category.get("label"))
+        if label:
+            genres.append(label)
+
+    licence = video.get("licence")
+    licence_label = as_text(licence.get("label")) if isinstance(licence, dict) else None
 
     return {
-        "id": str(movie.get("id") or ""),
-        "external_id": str(movie.get("id") or ""),
-        "source": "yts",
-        "title": title,
-        "year": year,
-        "imdb_id": as_text(movie.get("imdb_code")),
-        "imdb_rating": imdb_rating,
+        "id": external_id,
+        "external_id": external_id,
+        "source": "peertube",
+        "title": as_text(video.get("name")) or "Untitled",
+        "year": _peertube_year(video),
+        "imdb_id": None,
+        "imdb_rating": None,
         "genres": genres,
-        "thumbnail": poster or as_text(movie.get("large_cover_image")) or as_text(movie.get("medium_cover_image")),
-        "downloads": coalesce_int(movie.get("download_count"), movie.get("downloaded"), movie.get("downloads")),
-        "seeders": seeders,
-        "peers": peers,
-        "torrent_hash": as_text((best_torrent or {}).get("hash")),
-        "url": as_text(movie.get("url")),
+        "thumbnail": thumbnail,
+        "downloads": as_int(video.get("views")),
+        "seeders": None,
+        "peers": None,
+        "url": as_text(video.get("url")),
+        "description": truncate_text(as_text(video.get("description"))),
+        "duration_minutes": (as_int(video.get("duration")) or 0) // 60 or None,
+        "licence": licence_label,
     }
 
 
-async def _fetch_omdb_for_movie(client: httpx.AsyncClient, imdb_id: str) -> dict[str, Any] | None:
-    if not OMDB_API_KEY or not imdb_id:
-        return None
+async def _search_peertube(
+    q: str,
+    page: int,
+    limit: int,
+    sort_by: str,
+    sort_dir: str,
+    genre: str | None,
+    year_min: int | None,
+    year_max: int | None,
+    imdb_min: float | None,
+) -> dict[str, Any]:
+    descending = sort_dir.lower() != "asc"
+    if sort_by == "title":
+        remote_sort = "-name" if descending else "name"
+    elif sort_by == "year":
+        remote_sort = "-publishedAt" if descending else "publishedAt"
+    else:
+        # PeerTube has no ratings/seeders; views is the closest popularity signal.
+        remote_sort = "-views"
 
-    try:
-        response = await client.get(
-            OMDB_BASE_URL,
-            params={"apikey": OMDB_API_KEY, "i": imdb_id, "r": "json"},
-        )
+    params: list[tuple[str, Any]] = [
+        ("start", (page - 1) * limit),
+        ("count", limit),
+        ("sort", remote_sort),
+    ]
+    for licence_id in PEERTUBE_FREE_LICENCES:
+        params.append(("licenceOneOf", licence_id))
+
+    if q.strip():
+        params.append(("search", q.strip()))
+    else:
+        # Browsing: restrict to feature-length so the catalogue looks like films.
+        params.append(("durationMin", PEERTUBE_BROWSE_MIN_DURATION))
+
+    async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+        response = await client.get(PEERTUBE_SEARCH_URL, params=params)
         response.raise_for_status()
         payload = response.json()
-        if payload.get("Response") == "True":
-            return payload
-    except httpx.HTTPError:
-        return None
 
-    return None
+    data = payload.get("data", []) if isinstance(payload, dict) else []
+    if not isinstance(data, list):
+        data = []
+
+    normalized: list[dict[str, Any]] = []
+    for video in data:
+        if not isinstance(video, dict):
+            continue
+        item = _normalize_peertube_video(video)
+        if item is not None:
+            normalized.append(item)
+
+    filtered = _apply_filters(normalized, genre=genre, year_min=year_min, year_max=year_max, imdb_min=imdb_min)
+    sorted_results = _sort_movies(filtered, sort_by=sort_by, sort_dir=sort_dir)
+    total = as_int(payload.get("total")) or len(sorted_results)
+
+    return {
+        "query": q,
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "has_more": page * limit < total and len(sorted_results) > 0,
+        "applied_sort": {"sort_by": sort_by, "sort_dir": sort_dir},
+        "applied_filters": {
+            "genre": genre,
+            "year_min": year_min,
+            "year_max": year_max,
+            "imdb_min": imdb_min,
+        },
+        "source_provider": "peertube",
+        "provider_used": PEERTUBE_SEARCH_URL,
+        "results": sorted_results,
+    }
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 
 async def search_movies(
@@ -322,173 +391,57 @@ async def search_movies(
 ) -> dict[str, Any]:
     page = max(page, 1)
     limit = max(1, min(limit, MAX_SEARCH_LIMIT))
-    source = source.strip().lower() if source else "yts"
-
-    if source == "archive":
-        return await _search_archive(
-            q=q,
-            page=page,
-            limit=limit,
-            sort_by=sort_by,
-            sort_dir=sort_dir,
-            genre=genre,
-            year_min=year_min,
-            year_max=year_max,
-            imdb_min=imdb_min,
-        )
+    source = source.strip().lower() if source else DEFAULT_SOURCE
 
     if q.strip() and sort_by == "downloads":
         sort_by = "title"
         sort_dir = "asc"
 
-    yts_sort_map = {
-        "downloads": "download_count",
-        "seeders": "seeds",
-        "peers": "peers",
-        "title": "title",
-        "year": "year",
-        "imdb_rating": "rating",
-    }
-    yts_sort_by = yts_sort_map.get(sort_by, "download_count")
-    yts_order = "asc" if sort_dir.lower() == "asc" else "desc"
+    provider = _search_peertube if source == "peertube" else _search_archive
+    return await provider(
+        q=q,
+        page=page,
+        limit=limit,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        genre=genre,
+        year_min=year_min,
+        year_max=year_max,
+        imdb_min=imdb_min,
+    )
 
-    yts_params: dict[str, Any] = {
-        "page": page,
-        "limit": limit,
-        "sort_by": yts_sort_by,
-        "order_by": yts_order,
-    }
-    if q.strip():
-        yts_params["query_term"] = q.strip()
-    if genre:
-        yts_params["genre"] = genre
 
-    yts_urls = _candidate_yts_urls()
+# ── Health checks ─────────────────────────────────────────────────────────────
 
-    payload: dict[str, Any] = {}
-    yts_movies: list[dict[str, Any]] = []
-    omdb_results: list[dict[str, Any] | None] = []
-    last_yts_error: Exception | None = None
-    yts_provider_used = ""
 
+async def check_archive_connectivity() -> dict[str, Any]:
     try:
-        async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
-            for yts_url in yts_urls:
-                try:
-                    response = await client.get(yts_url, params=yts_params, headers=YTS_REQUEST_HEADERS)
-                    response.raise_for_status()
-                    payload = response.json()
-                    yts_provider_used = yts_url
-
-                    data = payload.get("data", {}) if isinstance(payload, dict) else {}
-                    yts_movies = data.get("movies", []) if isinstance(data, dict) else []
-                    if not isinstance(yts_movies, list):
-                        yts_movies = []
-
-                    omdb_tasks = []
-                    for movie in yts_movies[:MAX_OMDB_ENRICH]:
-                        if isinstance(movie, dict):
-                            omdb_tasks.append(_fetch_omdb_for_movie(client, as_text(movie.get("imdb_code")) or ""))
-
-                    omdb_results = await asyncio.gather(*omdb_tasks, return_exceptions=False) if omdb_tasks else []
-                    break
-                except httpx.HTTPError as url_exc:
-                    last_yts_error = url_exc
-
-            if not yts_provider_used:
-                raise last_yts_error or httpx.HTTPError("No YTS endpoint configured")
-    except httpx.HTTPError as exc:
-        try:
-            fallback_payload = await _search_archive(
-                q=q,
-                page=page,
-                limit=limit,
-                sort_by=sort_by,
-                sort_dir=sort_dir,
-                genre=genre,
-                year_min=year_min,
-                year_max=year_max,
-                imdb_min=imdb_min,
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            response = await client.get(
+                ARCHIVE_ADVANCEDSEARCH_URL,
+                params=[("q", "mediatype:(movies)"), ("rows", 1), ("output", "json"), ("fl[]", "identifier")],
             )
-            fallback_payload["warning"] = f"Primary provider unavailable: {exc}"
-            fallback_payload["provider_error"] = str(exc)
-            return fallback_payload
-        except httpx.HTTPError as fallback_exc:
-            return {
-                "query": q,
-                "page": page,
-                "limit": limit,
-                "total": 0,
-                "has_more": False,
-                "results": [],
-                "error": f"Primary provider error: {exc}; Fallback provider error: {fallback_exc}",
-            }
-
-    omdb_by_imdb_id: dict[str, dict[str, Any]] = {}
-    for movie, omdb_data in zip(yts_movies[:MAX_OMDB_ENRICH], omdb_results):
-        imdb_id = as_text(movie.get("imdb_code")) if isinstance(movie, dict) else None
-        if imdb_id and isinstance(omdb_data, dict):
-            omdb_by_imdb_id[imdb_id] = omdb_data
-
-    normalized: list[dict[str, Any]] = []
-    for movie in yts_movies:
-        if not isinstance(movie, dict):
-            continue
-        imdb_id = as_text(movie.get("imdb_code"))
-        normalized.append(_normalize_yts_movie(movie, omdb_by_imdb_id.get(imdb_id or "")))
-
-    filtered = _apply_filters(normalized, genre=genre, year_min=year_min, year_max=year_max, imdb_min=imdb_min)
-    sorted_results = _sort_movies(filtered, sort_by=sort_by, sort_dir=sort_dir)
-
-    total = 0
-    if isinstance(payload, dict):
-        data = payload.get("data")
-        if isinstance(data, dict):
-            total = as_int(data.get("movie_count")) or 0
-
-    if filtered and len(filtered) < total:
-        total = max(total, (page - 1) * limit + len(filtered))
-
-    has_more = page * limit < total and len(sorted_results) > 0
-    return {
-        "query": q,
-        "page": page,
-        "limit": limit,
-        "total": total,
-        "has_more": has_more,
-        "source_provider": "yts",
-        "provider_used": yts_provider_used,
-        "applied_sort": {"sort_by": sort_by, "sort_dir": sort_dir},
-        "applied_filters": {
-            "genre": genre,
-            "year_min": year_min,
-            "year_max": year_max,
-            "imdb_min": imdb_min,
-        },
-        "results": sorted_results,
-    }
+            response.raise_for_status()
+            payload = response.json()
+        found = payload.get("response", {}).get("numFound") if isinstance(payload, dict) else None
+        return {"reachable": True, "num_found": found, "provider_used": ARCHIVE_ADVANCEDSEARCH_URL}
+    except Exception as exc:
+        return {"reachable": False, "error": str(exc)}
 
 
-async def check_yts_connectivity() -> dict[str, Any]:
-    yts_urls = _candidate_yts_urls()
-
-    last_error: Exception | None = None
-    for yts_url in yts_urls:
-        try:
-            async with httpx.AsyncClient(timeout=6.0, follow_redirects=True) as client:
-                response = await client.get(
-                    yts_url,
-                    params={"limit": 1, "page": 1},
-                    headers=YTS_REQUEST_HEADERS,
-                )
-                response.raise_for_status()
-                payload = response.json()
-                status = payload.get("status") if isinstance(payload, dict) else None
-                return {"reachable": True, "status": status, "provider_used": yts_url}
-        except Exception as exc:
-            last_error = exc
-
-    return {"reachable": False, "error": str(last_error) if last_error else "No YTS endpoint configured"}
+async def check_peertube_connectivity() -> dict[str, Any]:
+    try:
+        async with httpx.AsyncClient(timeout=6.0, follow_redirects=True) as client:
+            response = await client.get(PEERTUBE_SEARCH_URL, params=[("count", 1), ("licenceOneOf", 1)])
+            response.raise_for_status()
+            payload = response.json()
+        return {
+            "reachable": True,
+            "total": payload.get("total") if isinstance(payload, dict) else None,
+            "provider_used": PEERTUBE_SEARCH_URL,
+        }
+    except Exception as exc:
+        return {"reachable": False, "error": str(exc)}
 
 
 async def check_omdb_connectivity() -> dict[str, Any]:

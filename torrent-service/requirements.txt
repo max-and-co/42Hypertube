@@ -5,3 +5,4 @@ asyncpg
 pyjwt
 internetarchive
 httpx
+libtorrent==2.1.1

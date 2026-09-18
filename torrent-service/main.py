@@ -1,15 +1,20 @@
 from pathlib import Path
 import logging
 
-from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
 
 from auth import get_current_user_id
-from config import DEFAULT_SEARCH_LIMIT
+from config import DEFAULT_SEARCH_LIMIT, DEFAULT_SOURCE, SUPPORTED_SOURCES
 from lifecycle import lifespan
 from schemas import StreamSessionCreate
 from services.media_service import build_streaming_response, subtitle_media_type
-from services.search_service import check_omdb_connectivity, check_yts_connectivity, search_movies
+from services.search_service import (
+    check_archive_connectivity,
+    check_omdb_connectivity,
+    check_peertube_connectivity,
+    search_movies,
+)
 from services.session_service import (
     create_stream_session,
     get_stream_session,
@@ -34,22 +39,13 @@ async def health_check():
 
 @app.get("/health/providers")
 async def providers_health():
-    yts = await check_yts_connectivity()
-    omdb = await check_omdb_connectivity()
     return {
         "status": "ok",
         "providers": {
-            "yts": yts,
-            "omdb": omdb,
+            "archive": await check_archive_connectivity(),
+            "peertube": await check_peertube_connectivity(),
+            "omdb": await check_omdb_connectivity(),
         },
-    }
-
-
-@app.get("/protected")
-async def protected_route(user_id: int = Depends(get_current_user_id)):
-    return {
-        "message": "You have successfully accessed a protected route on the torrent-service!",
-        "user_id": user_id,
     }
 
 
@@ -59,7 +55,7 @@ async def search_endpoint(
     q: str = "",
     page: int = 1,
     limit: int = DEFAULT_SEARCH_LIMIT,
-    source: str = "yts",
+    source: str = DEFAULT_SOURCE,
     sort_by: str = "downloads",
     sort_dir: str = "desc",
     genre: str | None = None,
@@ -68,6 +64,11 @@ async def search_endpoint(
     imdb_min: float | None = None,
 ):
     get_current_user_id(request)
+    if source.strip().lower() not in SUPPORTED_SOURCES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"source must be one of {', '.join(SUPPORTED_SOURCES)}",
+        )
     return await search_movies(
         q=q,
         page=page,
@@ -85,6 +86,11 @@ async def search_endpoint(
 @app.post("/sessions")
 async def create_session_endpoint(payload: StreamSessionCreate, request: Request):
     user_id = get_current_user_id(request)
+    if payload.source.strip().lower() not in SUPPORTED_SOURCES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"source must be one of {', '.join(SUPPORTED_SOURCES)}",
+        )
     return await create_stream_session(payload, user_id)
 
 
@@ -100,18 +106,16 @@ async def get_session_endpoint(session_id: str, request: Request):
 @app.get("/stream/{session_id}")
 async def open_stream(session_id: str, request: Request):
     get_current_user_id(request)
-    stream_url, stream_path, status_value = await get_stream_target(session_id)
+    stream_path, status_value = await get_stream_target(session_id)
 
-    if stream_path:
-        path = Path(stream_path)
-        if not path.exists() or not path.is_file():
-            raise HTTPException(status_code=404, detail="Local stream file missing")
-        return build_streaming_response(path, request.headers.get("range"))
-
-    if not stream_url:
+    if not stream_path:
         raise HTTPException(status_code=409, detail=f"Stream not ready (status={status_value})")
 
-    return RedirectResponse(url=stream_url, status_code=307)
+    path = Path(stream_path)
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Local stream file missing")
+
+    return build_streaming_response(path, request.headers.get("range"))
 
 
 @app.get("/subtitles/{session_id}")

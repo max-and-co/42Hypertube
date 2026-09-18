@@ -20,6 +20,11 @@ OMDB_BASE_URL = "https://www.omdbapi.com/"
 TMDB_API_KEY = os.getenv("TMDB_API_KEY", "").strip()
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
 
+# Sources must stay in sync with torrent-service/config.py. Both are
+# royalty-free / legally distributable, as the subject requires.
+SUPPORTED_SOURCES = {"archive", "peertube"}
+DEFAULT_SOURCE = "archive"
+
 
 def _as_int(value: object) -> int | None:
     try:
@@ -225,7 +230,7 @@ async def _fallback_discover_results(
 ) -> tuple[list[dict[str, object]], int, bool, str]:
     cache_query = select(ExternalMovieCache)
 
-    if source in {"yts", "archive"}:
+    if source in SUPPORTED_SOURCES:
         cache_query = cache_query.where(ExternalMovieCache.source == source)
 
     if q.strip():
@@ -351,7 +356,7 @@ async def discover_movies(
     q: str = "",
     page: int = Query(1, ge=1),
     limit: int = Query(24, ge=1, le=50),
-    source: str = "yts",
+    source: str = DEFAULT_SOURCE,
     sort_by: str = "downloads",
     sort_dir: str = "desc",
     genre: str | None = None,
@@ -361,9 +366,12 @@ async def discover_movies(
     db: AsyncSession = Depends(get_db),
 ):
     user_id = get_current_user_id(request)
-    requested_source = source.strip().lower() if source else "yts"
-    if requested_source not in {"yts", "archive"}:
-        raise HTTPException(status_code=400, detail="source must be 'yts' or 'archive'")
+    requested_source = source.strip().lower() if source else DEFAULT_SOURCE
+    if requested_source not in SUPPORTED_SOURCES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"source must be one of {', '.join(sorted(SUPPORTED_SOURCES))}",
+        )
 
     if q.strip() and sort_by == "downloads":
         sort_by = "title"
@@ -475,7 +483,7 @@ async def discover_movies(
     for item in raw_results:
         if not isinstance(item, dict):
             continue
-        item_source = str(item.get("source") or "yts")
+        item_source = str(item.get("source") or DEFAULT_SOURCE)
         external_id = str(item.get("id") or item.get("external_id") or "")
         if not external_id:
             continue
@@ -529,7 +537,7 @@ async def discover_movies(
     for item in raw_results:
         if not isinstance(item, dict):
             continue
-        item_source = str(item.get("source") or "yts")
+        item_source = str(item.get("source") or DEFAULT_SOURCE)
         external_id = str(item.get("id") or item.get("external_id") or "")
         if not external_id:
             continue
@@ -546,7 +554,6 @@ async def discover_movies(
                 "downloads": _as_int(item.get("downloads")),
                 "seeders": _as_int(item.get("seeders")),
                 "peers": _as_int(item.get("peers")),
-                "torrent_hash": item.get("torrent_hash"),
                 "watched": (item_source, external_id) in watched_pairs,
                 "url": item.get("url"),
             }
@@ -692,7 +699,6 @@ async def ingest_external_movie(
             original_language=merged_language,
             external_source=source,
             external_id=external_id,
-            torrent_hash=data.torrent_hash,
             stream_status="not_started",
             last_accessed_at=now,
         )
@@ -715,7 +721,6 @@ async def ingest_external_movie(
         movie.director = merged_director or movie.director
         movie.main_cast = _to_csv(merged_cast) or movie.main_cast
         movie.original_language = merged_language or movie.original_language
-        movie.torrent_hash = data.torrent_hash or movie.torrent_hash
         movie.last_accessed_at = now
 
     try:
@@ -837,7 +842,7 @@ async def toggle_watched_state(
     external_id: str,
     request: Request,
     data: WatchToggleRequest,
-    source: str = "yts",
+    source: str = DEFAULT_SOURCE,
     db: AsyncSession = Depends(get_db),
 ):
     user_id = get_current_user_id(request)

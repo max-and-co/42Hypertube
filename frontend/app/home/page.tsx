@@ -18,7 +18,6 @@ type DiscoverMovie = {
   downloads: number | null;
   seeders: number | null;
   peers: number | null;
-  torrent_hash?: string | null;
   watched: boolean;
   url?: string | null;
 };
@@ -37,13 +36,13 @@ type DiscoverResponse = {
 };
 
 const POSTER_GRADIENTS = [
-  "linear-gradient(160deg, #0d0d0d 0%, #111 50%, #0a0a0a 100%)",
-  "linear-gradient(160deg, #0a0a10 0%, #0d0d15 50%, #080810 100%)",
-  "linear-gradient(160deg, #100a0a 0%, #150d0d 50%, #0a0808 100%)",
-  "linear-gradient(160deg, #0a100a 0%, #0d150d 50%, #08100a 100%)",
-  "linear-gradient(160deg, #0d0d0d 0%, #161616 50%, #0a0a0a 100%)",
-  "linear-gradient(160deg, #100d0a 0%, #151208 50%, #0a0d08 100%)",
-  "linear-gradient(160deg, #0a0a0d 0%, #0d0d12 50%, #08080f 100%)",
+  "linear-gradient(160deg, #444444 0%, #474747 50%, #424242 100%)",
+  "linear-gradient(160deg, #434343 0%, #3f3f4f 50%, #39394d 100%)",
+  "linear-gradient(160deg, #434343 0%, #4f3f3f 50%, #414141 100%)",
+  "linear-gradient(160deg, #434343 0%, #3f4f3f 50%, #394d3e 100%)",
+  "linear-gradient(160deg, #444444 0%, #4b4b4b 50%, #424242 100%)",
+  "linear-gradient(160deg, #444444 0%, #534c37 50%, #424242 100%)",
+  "linear-gradient(160deg, #424242 0%, #464646 50%, #3a3a4c 100%)",
 ];
 
 export default function Home() {
@@ -58,7 +57,7 @@ export default function Home() {
 
   const [sortBy, setSortBy] = useState("downloads");
   const [sortDir, setSortDir] = useState("desc");
-  const [sourceChoice, setSourceChoice] = useState("yts");
+  const [sourceChoice, setSourceChoice] = useState("archive");
   const [genre, setGenre] = useState("");
   const [yearMin, setYearMin] = useState("");
   const [yearMax, setYearMax] = useState("");
@@ -218,7 +217,7 @@ export default function Home() {
   };
 
   const handleClearFilters = () => {
-    setSourceChoice("yts");
+    setSourceChoice("archive");
     setGenre("");
     setYearMin("");
     setYearMax("");
@@ -256,7 +255,6 @@ export default function Home() {
       params.set("cover_image", movie.thumbnail);
     }
     if (movie.genres?.length) params.set("genres", movie.genres.join(","));
-    if (movie.torrent_hash) params.set("torrent_hash", movie.torrent_hash);
 
     router.push(`/watch/${encodeURIComponent(movie.source)}/${encodeURIComponent(movie.id)}?${params.toString()}`);
   };
@@ -315,7 +313,7 @@ export default function Home() {
             {dropdownOpen && (
               <div className="user-dropdown">
                 {username && (
-                  <div className="dropdown-item" style={{ cursor: "default", pointerEvents: "none", color: "#444" }}>
+                  <div className="dropdown-item" style={{ cursor: "default", pointerEvents: "none", color: "#6f6f6f" }}>
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                       <circle cx="12" cy="8" r="4" />
                       <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" />
@@ -333,7 +331,7 @@ export default function Home() {
                 </a>
 
                 <div className="lang-item">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="1.5" style={{ flexShrink: 0 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#7c7c7c" strokeWidth="1.5" style={{ flexShrink: 0 }}>
                     <circle cx="12" cy="12" r="10" />
                     <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                   </svg>
@@ -413,8 +411,8 @@ export default function Home() {
             <label className="filter-field">
               <span>Source</span>
               <select value={sourceChoice} onChange={(e) => setSourceChoice(e.target.value)}>
-                <option value="yts">YTS</option>
                 <option value="archive">Archive.org</option>
+                <option value="peertube">PeerTube</option>
               </select>
             </label>
             <label className="filter-field">

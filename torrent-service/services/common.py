@@ -15,7 +15,7 @@ def now_iso() -> str:
 
 def is_video_file(name: str) -> bool:
     lowered = name.lower()
-    return lowered.endswith((".mp4", ".webm", ".mkv", ".m4v", ".mov", ".avi"))
+    return lowered.endswith((".mp4", ".webm", ".mkv", ".m4v", ".ogv", ".mov", ".avi", ".mpeg", ".mpg"))
 
 
 def is_subtitle_file(name: str) -> bool:
@@ -23,16 +23,23 @@ def is_subtitle_file(name: str) -> bool:
     return lowered.endswith((".vtt", ".srt", ".ass"))
 
 
+_LANGUAGE_TOKENS = {
+    "en": "en", "eng": "en", "english": "en",
+    "fr": "fr", "fre": "fr", "fra": "fr", "french": "fr",
+    "es": "es", "spa": "es", "spanish": "es",
+}
+
+
 def language_from_name(name: str) -> str | None:
-    lowered = name.lower()
-    for candidate in ("en", "eng", "english", "fr", "fre", "french", "es", "spa", "spanish"):
-        if candidate in lowered:
-            if candidate.startswith("en"):
-                return "en"
-            if candidate.startswith("fr"):
-                return "fr"
-            if candidate.startswith("es"):
-                return "es"
+    """Match whole filename tokens only.
+
+    Substring matching is wrong here: "charlie_chaplin_film_fest.srt" contains
+    "es" inside "fest" and would be labelled Spanish.
+    """
+    for token in re.split(r"[^a-z]+", name.lower()):
+        language = _LANGUAGE_TOKENS.get(token)
+        if language:
+            return language
     return None
 
 

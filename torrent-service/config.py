@@ -2,22 +2,39 @@ import os
 from pathlib import Path
 
 DATABASE_URL = os.getenv("DATABASE_URL")
-YTS_LIST_MOVIES_URL = os.getenv("YTS_LIST_MOVIES_URL", "https://yts.mx/api/v2/list_movies.json").strip()
-YTS_LIST_MOVIES_FALLBACK_URLS = [
-    url.strip()
-    for url in os.getenv(
-        "YTS_LIST_MOVIES_FALLBACK_URLS",
-        "https://yts.lt/api/v2/list_movies.json,https://yts.rs/api/v2/list_movies.json",
-    ).split(",")
-    if url.strip()
-]
+
+# ── Sources ───────────────────────────────────────────────────────────────────
+# Both sources are royalty-free / legally distributable, as required by the
+# subject. Archive.org is one of the two sources the subject names explicitly;
+# PeerTube results are filtered to Creative Commons / public-domain licences.
+
 ARCHIVE_ADVANCEDSEARCH_URL = "https://archive.org/advancedsearch.php"
+ARCHIVE_METADATA_URL = "https://archive.org/metadata"
+ARCHIVE_TRACKERS = [
+    "http://bt1.archive.org:6969/announce",
+    "http://bt2.archive.org:6969/announce",
+]
+
+# SepiaSearch is the official cross-instance PeerTube search index.
+PEERTUBE_SEARCH_URL = os.getenv(
+    "PEERTUBE_SEARCH_URL", "https://sepiasearch.org/api/v1/search/videos"
+).strip()
+# PeerTube licence ids: 1 CC-BY, 2 CC-BY-SA, 3 CC-BY-ND, 4 CC-BY-NC,
+# 5 CC-BY-NC-SA, 6 CC-BY-NC-ND, 7 Public Domain. Anything outside this set
+# ("Unknown" / "All Rights Reserved") is never surfaced.
+PEERTUBE_FREE_LICENCES = [1, 2, 3, 4, 5, 6, 7]
+# When browsing (no search term) only show feature-length content, so the
+# catalogue reads like a film library rather than a pile of short clips.
+PEERTUBE_BROWSE_MIN_DURATION = int(os.getenv("PEERTUBE_BROWSE_MIN_DURATION", "2400"))
+
 OMDB_BASE_URL = "https://www.omdbapi.com/"
 OMDB_API_KEY = os.getenv("OMDB_API_KEY", "").strip()
 
 DEFAULT_SEARCH_LIMIT = 24
 MAX_SEARCH_LIMIT = 50
-MAX_OMDB_ENRICH = 12
+
+DEFAULT_SOURCE = "archive"
+SUPPORTED_SOURCES = ("archive", "peertube")
 
 MEDIA_ROOT = Path(os.getenv("TORRENT_MEDIA_DIR", "/data/media"))
 SUBTITLES_ROOT = Path(os.getenv("TORRENT_SUBTITLES_DIR", "/data/subtitles"))

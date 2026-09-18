@@ -127,7 +127,6 @@ export default function WatchPage() {
         thumbnail: query.get("thumbnail"),
         cover_image: query.get("cover_image"),
         description: query.get("description"),
-        torrent_hash: query.get("torrent_hash"),
       };
 
       const ingestResponse = await fetch("/api/movies/external/ingest", {
@@ -152,7 +151,6 @@ export default function WatchPage() {
           source,
           external_id: externalId,
           title: ingestPayload.title,
-          torrent_hash: ingestPayload.torrent_hash,
         }),
       });
 

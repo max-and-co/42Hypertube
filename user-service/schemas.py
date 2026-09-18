@@ -59,7 +59,7 @@ class DiscoverQuery(BaseModel):
     q: str = ""
     page: int = 1
     limit: int = 24
-    source: str = "yts"
+    source: str = "archive"
     sort_by: str = "downloads"
     sort_dir: str = "desc"
     genre: Optional[str] = None
@@ -89,7 +89,6 @@ class ExternalMovieIngestRequest(BaseModel):
     producer: Optional[str] = None
     director: Optional[str] = None
     main_cast: Optional[list[str]] = None
-    torrent_hash: Optional[str] = None
     available_subtitles: Optional[list[str]] = None
 
 
