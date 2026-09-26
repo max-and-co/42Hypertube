@@ -132,7 +132,7 @@
 }
 .watch-cover-fallback { background: var(--bg); }
 
-.watch-meta h2 {
+.watch-meta .watch-title {
   font-family: var(--font-display), Georgia, serif;
   font-size: 1.62rem;
   font-style: italic;
@@ -191,7 +191,7 @@
   border-radius: var(--r-box);
 }
 
-.watch-comments-panel h3 {
+.watch-comments-panel h2 {
   margin-bottom: 26px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--rule-strong);
@@ -281,3 +281,20 @@
   .watch-cover-wrap { max-width: 148px; }
   .watch-comment-form button { width: 100%; }
 }
+
+.watch-progress { margin-top: 10px; font-size: 0.74rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
+.watch-retry {
+  padding: 8px 18px;
+  background: transparent;
+  border: 1px solid var(--frame);
+  border-radius: var(--r-box);
+  color: var(--ink);
+  font-size: 0.66rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.watch-retry:hover { border-color: var(--rose); }
+.watch-comment-author a:hover { color: var(--rose); }
+.watch-comment-date { color: var(--ink-3); font-weight: 400; letter-spacing: 0; text-transform: none; }
+.watch-page .app-footer { margin-top: 48px; }

@@ -8,3 +8,4 @@ torrent-service/venv/
 .DS_Store
 .vscode/
 uploads/
+frontend/tsconfig.tsbuildinfo

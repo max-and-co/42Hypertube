@@ -35,7 +35,8 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(lifespan=lifespan, root_path="/api")
+# No interactive docs: only the documented routes answer (subject III.4).
+app = FastAPI(lifespan=lifespan, root_path="/api", docs_url=None, redoc_url=None, openapi_url=None)
 
 app.include_router(auth.router)
 app.include_router(oauth.router)

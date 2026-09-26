@@ -4,6 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import "./forgot-password.css";
 import { useLanguage } from "../i18n/LanguageContext";
+import { sendForm } from "../lib/api";
+import { emailError } from "../lib/validation";
+import SiteHeader from "../components/SiteHeader";
+import SiteFooter from "../components/SiteFooter";
 
 export default function ForgotPassword() {
   const [email, setEmail]     = useState("");
@@ -14,28 +18,23 @@ export default function ForgotPassword() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    try {
-      const res = await fetch("/api/auth/forgot-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      if (res.ok) {
-        setSuccess(true);
-      } else {
-        const data = await res.json();
-        setError(data.detail || t("forgot.failed"));
-      }
-    } catch {
-      setError(t("error.generic"));
+    const invalid = emailError(email);
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+    const result = await sendForm("/api/auth/forgot-password", { email: email.trim() });
+    if (result.ok) {
+      setSuccess(true);
+    } else {
+      setError(result.detail || t("forgot.failed"));
     }
   };
 
   return (
-    <div className="forgot-page">
-      <div className="vignette" />
-      <div className="scanlines" />
-      <div className="grain" />
+    <div className="page-shell">
+      <SiteHeader />
+      <main className="forgot-page">
 
       <div className="forgot-card f1">
         <div className="corner tl" />
@@ -64,7 +63,7 @@ export default function ForgotPassword() {
             </p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="forgot-form">
+          <form onSubmit={handleSubmit} className="forgot-form" noValidate>
             <div className="field f4">
               <label className="field-label">{t("forgot.email")}</label>
               <input
@@ -73,6 +72,7 @@ export default function ForgotPassword() {
                 placeholder={t("forgot.email-placeholder")}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                maxLength={254}
                 required
               />
             </div>
@@ -93,6 +93,8 @@ export default function ForgotPassword() {
           </Link>
         </p>
       </div>
+      </main>
+      <SiteFooter signedIn={false} />
     </div>
   );
 }

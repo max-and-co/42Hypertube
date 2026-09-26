@@ -1,8 +1,11 @@
 import os
+import json
 import jwt
 import bcrypt
 from datetime import datetime, timedelta, timezone
 from fastapi import Request, Response, HTTPException, status
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 
@@ -69,13 +72,26 @@ def create_access_token(data: dict) -> str:
     return jwt.encode(to_encode, get_secret(), algorithm=ALGORITHM)
 
 
+SERVICE_TOKEN_MINUTES = 5
+
+
+def create_service_token() -> str:
+    """Short-lived token user-service uses to call torrent-service on its own
+    behalf (e.g. the public front page). Its subject 0 is never a real user."""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=SERVICE_TOKEN_MINUTES)
+    return jwt.encode({"sub": "0", "svc": True, "exp": expire}, get_secret(), algorithm=ALGORITHM)
+
+
 def decode_token(token: str) -> int:
     try:
         payload = jwt.decode(token, get_secret(), algorithms=[ALGORITHM])
-        user_id = payload.get("sub")
-        if user_id is None:
+        user_id = int(payload.get("sub"))
+        # Service tokens (sub 0) are for torrent-service only, never a login here.
+        if user_id <= 0:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
-        return int(user_id)
+        return user_id
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
     except jwt.PyJWTError as e:
@@ -94,8 +110,43 @@ def get_current_user_id(request: Request) -> int:
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
 
-def get_current_user_from_cookie(request: Request) -> int:
-    return get_current_user_id(request)
+def get_optional_user_id(request: Request) -> int | None:
+    """Like get_current_user_id, but None instead of a 401."""
+    try:
+        return get_current_user_id(request)
+    except HTTPException:
+        return None
+
+
+# ── Browser forms ─────────────────────────────────────────────────────────────
+# A 4xx answer to a fetch() is printed in red in the browser console, and the
+# subject forbids any console error. Endpoints used only by our own forms
+# (login, register, settings...) therefore answer 200 with {"ok": false,
+# "detail": ...} for an expected refusal such as a wrong password. The public
+# REST API from the subject keeps real HTTP status codes.
+
+def form_error(detail: str) -> JSONResponse:
+    return JSONResponse({"ok": False, "detail": detail})
+
+
+def first_validation_message(exc: ValidationError) -> str:
+    error = exc.errors()[0]
+    message = str(error.get("msg") or "Invalid input")
+    message = message.removeprefix("Value error, ")
+    field = ".".join(str(part) for part in error.get("loc", ()) if part != "body")
+    return f"{field}: {message}" if field else message
+
+
+async def parse_form(request: Request, model: type[BaseModel]) -> tuple[BaseModel | None, JSONResponse | None]:
+    """Validate a JSON body; on failure return a 200 form error instead of a 422."""
+    try:
+        payload = await request.json()
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None, form_error("Request body must be JSON")
+    try:
+        return model.model_validate(payload), None
+    except ValidationError as exc:
+        return None, form_error(first_validation_message(exc))
 
 
 def set_auth_cookie(response: Response, user_id: int) -> None:

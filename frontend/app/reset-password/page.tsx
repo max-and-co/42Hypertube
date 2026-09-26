@@ -5,6 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import "./reset-password.css";
 import { useLanguage } from "../i18n/LanguageContext";
+import { sendForm } from "../lib/api";
+import { passwordError } from "../lib/validation";
+import SiteHeader from "../components/SiteHeader";
+import SiteFooter from "../components/SiteFooter";
 
 function ResetPasswordForm() {
   const [password, setPassword]   = useState("");
@@ -33,34 +37,25 @@ function ResetPasswordForm() {
       setError(t("reset.mismatch"));
       return;
     }
-    if (password.length < 8) {
-      setError(t("reset.too-short"));
+    const invalid = passwordError(password);
+    if (invalid) {
+      setError(invalid);
       return;
     }
 
-    try {
-      const res = await fetch("/api/auth/reset-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, new_password: password }),
-      });
-      if (res.ok) {
-        setSuccess(true);
-        setTimeout(() => router.push("/login"), 3000);
-      } else {
-        const data = await res.json();
-        setError(data.detail || t("reset.failed"));
-      }
-    } catch {
-      setError(t("error.generic"));
+    const result = await sendForm("/api/auth/reset-password", { token, new_password: password });
+    if (result.ok) {
+      setSuccess(true);
+      setTimeout(() => router.push("/login"), 3000);
+    } else {
+      setError(result.detail || t("reset.failed"));
     }
   };
 
   return (
-    <div className="reset-page">
-      <div className="vignette" />
-      <div className="scanlines" />
-      <div className="grain" />
+    <div className="page-shell">
+      <SiteHeader />
+      <main className="reset-page">
 
       <div className="reset-card f1">
         <div className="corner tl" />
@@ -89,7 +84,7 @@ function ResetPasswordForm() {
             </p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="reset-form">
+          <form onSubmit={handleSubmit} className="reset-form" noValidate>
             <div className="field f4">
               <label className="field-label">{t("reset.new")}</label>
               <input
@@ -98,6 +93,7 @@ function ResetPasswordForm() {
                 placeholder="· · · · · · · ·"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                maxLength={128}
                 required
                 disabled={!token}
               />
@@ -132,6 +128,8 @@ function ResetPasswordForm() {
           </Link>
         </p>
       </div>
+      </main>
+      <SiteFooter signedIn={false} />
     </div>
   );
 }

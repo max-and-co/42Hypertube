@@ -50,13 +50,23 @@ async def update_movie_state(movie_id: int, **fields: Any) -> None:
     await db_execute(statement, params)
 
 
+async def fetch_movie(movie_id: int | None = None, *, source: str | None = None, external_id: str | None = None) -> dict[str, Any] | None:
+    columns = "id, title, imdb_id, original_language, external_source, external_id"
+    if movie_id is not None:
+        return await db_fetch_one(f"SELECT {columns} FROM movies WHERE id = :id", {"id": movie_id})
+    return await db_fetch_one(
+        f"SELECT {columns} FROM movies WHERE external_source = :source AND external_id = :external_id",
+        {"source": source, "external_id": external_id},
+    )
+
+
 async def fetch_user_pref_language(user_id: int) -> str:
     row = await db_fetch_one("SELECT preferred_language FROM users WHERE id = :user_id", {"user_id": user_id})
     if not row:
         return "en"
 
     value = str(row.get("preferred_language") or "en").strip().lower()
-    return value or "en"
+    return value if value in ("en", "fr", "es") else "en"
 
 
 def _movie_dir_for(video_path: str) -> Path | None:
@@ -88,8 +98,8 @@ async def purge_unwatched_movies() -> int:
         SELECT id, video_path
         FROM movies
         WHERE video_path IS NOT NULL
-          AND last_watched_at IS NOT NULL
-          AND last_watched_at < (NOW() - make_interval(days => :days))
+          AND COALESCE(last_watched_at, last_accessed_at) IS NOT NULL
+          AND COALESCE(last_watched_at, last_accessed_at) < (NOW() - make_interval(days => :days))
         """,
         {"days": RETENTION_DAYS},
     )
@@ -109,6 +119,8 @@ async def purge_unwatched_movies() -> int:
 
 
 async def retention_cleanup_loop() -> None:
+    # user-service creates the tables; on a fresh database give it time first.
+    await asyncio.sleep(60)
     while True:
         try:
             await purge_unwatched_movies()

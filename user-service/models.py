@@ -94,3 +94,13 @@ class MovieWatchState(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (UniqueConstraint("user_id", "source", "external_id", name="uq_user_watch_source_id"),)
+
+
+class RatingLookupCache(Base):
+    """OMDb/TMDb answers per normalised (title, year); rating NULL = not found."""
+    __tablename__ = "rating_lookup_cache"
+
+    key = Column(String(300), primary_key=True)
+    imdb_id = Column(String(20), nullable=True)
+    rating = Column(Float, nullable=True)
+    fetched_at = Column(DateTime(timezone=True), nullable=False)

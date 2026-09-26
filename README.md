@@ -1,123 +1,66 @@
-Here is a clean, precise summary for your coding agent:
+# Hypertube (Lumière)
 
-Project: Hypertube — Base Structure Setup
+A web app to search and watch public-domain and Creative Commons films. Films are
+downloaded on the server with BitTorrent and play in the browser while they
+download. 42 school project, see `hypertube.subject.pdf`.
 
-Goal
+## Run it
 
-Scaffold the full project so that docker compose up starts 5 services, all healthy and running in standby. No business logic, no routes beyond a health check, no database tables yet — just the skeleton.
+1. Copy the environment file and fill in the keys you have:
+   ```bash
+   cp .env.example .env
+   ```
+   - `FT_CLIENT_*`, `GITHUB_CLIENT_*`: OAuth apps (42 intra, GitHub).
+   - `SMTP_*`: password-reset e-mails. Left empty, the reset link is printed in the user-service logs.
+   - `OMDB_API_KEY` and/or `TMDB_API_KEY`: IMDb ratings, cast and summaries. Without them, films show no rating.
+   - `OPENSUBTITLES_API_KEY` (optional): extra English / preferred-language subtitles.
+   - `JWT_SECRET_KEY`: any long random string.
+2. Start everything:
+   ```bash
+   docker compose up --build
+   ```
+3. Open http://localhost:8080
 
-Services
+`.env` is ignored by git: never commit it.
 
-1. nginx Reverse proxy, single entry point on port 80. Routes traffic to the other services based on URL prefix. Config file at nginx/nginx.conf.
+## Services
 
-2. nextjs (port 3000) Next.js 14 with App Router and Tailwind CSS. TypeScript. No pages beyond a basic index confirming the service is up. Communicates with both FastAPI backends via Nginx, never directly.
+| Container | Role |
+|---|---|
+| `nginx` | The only entry point (port 8080). Routes `/api/...` to the services, everything else to Next.js. Rate-limits login forms. |
+| `nextjs` | Frontend (Next.js 14, production build). |
+| `user-service` | FastAPI: accounts, OAuth, profiles, film metadata and ratings, comments, the public REST API. |
+| `torrent-service` | FastAPI: source search (archive.org + PeerTube), BitTorrent download with libtorrent, streaming, FFmpeg conversion, subtitles. |
+| `db` | PostgreSQL 16, reachable only by the two services. |
 
-3. user-service (port 8000) FastAPI + Python 3.12. Handles auth, users, search, comments, movies metadata, RESTful API. Single /health GET endpoint returning {"status": "ok"}. Uses SQLAlchemy async + asyncpg to connect to PostgreSQL. No models, no routes beyond health check.
+## How playing while downloading works
 
-4. torrent-service (port 8001) FastAPI + Python 3.12. Handles torrent downloading, video streaming, FFmpeg transcoding, subtitles. Single /health GET endpoint returning {"status": "ok"}. Uses SQLAlchemy async + asyncpg to connect to PostgreSQL. No models, no routes beyond health check.
+- libtorrent downloads the chosen video file in order; the pieces right after
+  what is already on disk get deadlines, so HTTP webseeds follow the order too.
+- A film is "ready" once the first 20 MB are on disk without gaps.
+- `/api/stream/:session` answers byte ranges. A range the download has not
+  reached yet waits for its pieces (it never sends missing bytes).
+- mp4/webm are served as they are. Other formats (mkv, avi…) are piped through
+  FFmpeg as they download and played as fragmented mp4 while converting; the
+  result is then kept as a normal mp4 for later viewers.
+- Finished downloads are kept (`torrent_media` volume). Films nobody watched for
+  30 days (`MEDIA_RETENTION_DAYS`) are erased by a background task.
 
-5. db PostgreSQL 16 official Docker image. Single database, shared by both FastAPI services. Credentials via environment variables.
+## Public API
 
-Nginx Routing Rules
+Get a token with `POST /api/oauth/token` (`client_id` = username or e-mail,
+`client_secret` = password), then send `Authorization: Bearer <token>`.
 
-/                        → nextjs:3000
-/api/auth/*              → user-service:8000
-/api/users/*             → user-service:8000
-/api/movies/*            → user-service:8000
-/api/comments/*          → user-service:8000
-/api/oauth/*             → user-service:8000
-/api/torrent/*           → torrent-service:8001
-/api/stream/*            → torrent-service:8001
-/api/subtitles/*         → torrent-service:8001
+| Route | Auth |
+|---|---|
+| `GET /api/users`, `GET /api/users/:id`, `PATCH /api/users/:id` | token (e-mail and password: owner only) |
+| `GET /api/movies`, `GET /api/movies/:id` | public |
+| `GET /api/comments`, `GET/PATCH/DELETE /api/comments/:id` | token (changes: author only) |
+| `POST /api/comments`, `GET/POST /api/movies/:id/comments` | token |
 
-Folder Structure
+Anything else under `/api` answers `404`.
 
-hypertube/
-├── docker-compose.yml
-├── .env                        ← single env file at root
-├── nginx/
-│   └── nginx.conf
-├── frontend/
-│   ├── Dockerfile
-│   ├── package.json
-│   ├── tailwind.config.ts
-│   ├── tsconfig.json
-│   └── app/
-│       ├── layout.tsx
-│       └── page.tsx
-├── user-service/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   └── main.py
-└── torrent-service/
-    ├── Dockerfile
-    ├── requirements.txt
-    └── main.py
+## Health checks
 
-Environment Variables (single .env at root)
-
-POSTGRES_USER=hypertube
-POSTGRES_PASSWORD=hypertube
-POSTGRES_DB=hypertube
-DATABASE_URL=postgresql+asyncpg://hypertube:hypertube@db:5432/hypertube
-
-Both FastAPI services read DATABASE_URL from environment. NextJS reads nothing from the DB directly. The .env file must be in .gitignore.
-
-Key Requirements
-
-
-
-
-
-docker compose up must start all 5 services with no errors
-
-
-
-Both FastAPI services must confirm a successful database connection on startup (log it, don't crash if DB is momentarily not ready — use a retry/wait strategy)
-
-
-
-All services must have a health check defined in docker-compose.yml
-
-
-
-FastAPI services use uvicorn as the ASGI server
-
-
-
-NextJS runs with next dev in the container for now
-
-
-
-No business logic, no database schema, no authentication — purely structural
-
-
-
-A README.md at the root explaining how to run the project with docker compose up
-
-## How to Run
-
-1.  Ensure Docker and Docker Compose are installed.
-2.  Navigate to the project root.
-3.  Run the following command to build and start all services:
-    ```bash
-    docker compose up --build
-    ```
-4.  Once started, access the application at:
-    *   **Frontend**: [http://localhost:8080](http://localhost:8080) (via Nginx)
-5.  Check waiting services via health endpoints:
-    *   **User Service**: [http://localhost:8080/api/users/health](http://localhost:8080/api/users/health)
-    *   **Torrent Service**: [http://localhost:8080/api/torrent/health](http://localhost:8080/api/torrent/health)
-
-## Homepage/Search Behavior
-
-- Homepage without a search query shows popular external videos.
-- Search mode shows thumbnail results with infinite scrolling.
-- Cards display title, year (if available), IMDb rating (if available), and cover image.
-- Watched/unwatched state is stored per user and can be toggled from thumbnails.
-- Sort and filters are available for name, genre, IMDb rating, and production year.
-
-## OMDb Enrichment
-
-- Set `OMDB_API_KEY` in `.env` to enrich external results with IMDb rating/poster/year.
-- If the key is missing or invalid, the app still runs in degraded mode using source metadata only.
+- http://localhost:8080/api/torrent/health
+- http://localhost:8080/api/torrent/health/providers (archive.org, PeerTube, OMDb reachability)

@@ -2,7 +2,7 @@ import mimetypes
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 
 def session_key(source: str, external_id: str) -> str:
@@ -25,18 +25,41 @@ def is_subtitle_file(name: str) -> bool:
 
 _LANGUAGE_TOKENS = {
     "en": "en", "eng": "en", "english": "en",
-    "fr": "fr", "fre": "fr", "fra": "fr", "french": "fr",
-    "es": "es", "spa": "es", "spanish": "es",
+    "fr": "fr", "fre": "fr", "fra": "fr", "french": "fr", "francais": "fr",
+    "es": "es", "spa": "es", "spanish": "es", "espanol": "es",
+    "de": "de", "ger": "de", "deu": "de", "german": "de",
+    "it": "it", "ita": "it", "italian": "it",
+    "pt": "pt", "por": "pt", "portuguese": "pt",
+    "ru": "ru", "rus": "ru", "russian": "ru",
+    "ja": "ja", "jpn": "ja", "japanese": "ja",
+    "zh": "zh", "chi": "zh", "zho": "zh", "chinese": "zh",
+    "nl": "nl", "dut": "nl", "nld": "nl", "dutch": "nl",
 }
+
+
+def normalize_language(value: str | None) -> str | None:
+    """'English, French' / 'eng' / 'en-US' -> 'en' (first language only)."""
+    if not value:
+        return None
+    first = re.split(r"[,;/]", value.strip().lower())[0].strip()
+    first = first.split("-")[0].split("_")[0]
+    return _LANGUAGE_TOKENS.get(first)
 
 
 def language_from_name(name: str) -> str | None:
     """Match whole filename tokens only.
 
     Substring matching is wrong here: "charlie_chaplin_film_fest.srt" contains
-    "es" inside "fest" and would be labelled Spanish.
+    "es" inside "fest" and would be labelled Spanish. Only the last two tokens
+    before the extension are read ("film.en.srt", "film_english.srt"), so a
+    title word such as "de" or "it" is not taken for a language.
     """
-    for token in re.split(r"[^a-z]+", name.lower()):
+    tokens = [t for t in re.split(r"[^a-z]+", Path(name).stem.lower()) if t]
+    for position, token in enumerate(reversed(tokens[-2:])):
+        # A two-letter code only counts as the very last token ("film.en"),
+        # never inside a title ("la_vie_de_chateau").
+        if len(token) == 2 and position > 0:
+            continue
         language = _LANGUAGE_TOKENS.get(token)
         if language:
             return language
@@ -141,16 +164,3 @@ def parse_range_header(range_header: str | None, file_size: int) -> tuple[int, i
     if end < start:
         return None
     return start, end
-
-
-def iter_file_chunks(path: Path, start: int, end: int, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:
-    with path.open("rb") as file_handle:
-        file_handle.seek(start)
-        remaining = end - start + 1
-        while remaining > 0:
-            read_size = min(chunk_size, remaining)
-            data = file_handle.read(read_size)
-            if not data:
-                break
-            remaining -= len(data)
-            yield data

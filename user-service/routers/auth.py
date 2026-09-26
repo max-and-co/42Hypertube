@@ -3,18 +3,31 @@ from datetime import datetime, timedelta, timezone
 
 import aiosmtplib
 from email.message import EmailMessage
-from fastapi import APIRouter, Depends, Response, HTTPException, status
-from sqlalchemy import select, or_
+from fastapi import APIRouter, Depends, Request, Response
+from sqlalchemy import func, select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import (
-    get_password_hash, verify_password, set_auth_cookie, get_db,
+    get_password_hash, verify_password, set_auth_cookie, get_db, get_optional_user_id,
+    form_error, parse_form,
     FRONTEND_URL, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM,
 )
 from models import User
 from schemas import UserCreate, UserLogin, ForgotPasswordRequest, ResetPasswordRequest
 
 router = APIRouter()
+
+
+def user_payload(user: User) -> dict:
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "preferred_language": user.preferred_language,
+        "profile_picture": user.profile_picture,
+    }
 
 
 async def _send_reset_email(to_email: str, token: str) -> None:
@@ -42,18 +55,36 @@ async def _send_reset_email(to_email: str, token: str) -> None:
     )
 
 
-@router.post("/register")
-async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == user.email))
-    if result.scalars().first():
-        raise HTTPException(status_code=400, detail="Email already registered")
+@router.get("/session")
+async def session(request: Request, db: AsyncSession = Depends(get_db)):
+    """Who is logged in, if anyone. Always 200, so a logged-out visitor's page
+    load never prints a 401 in the console."""
+    user_id = get_optional_user_id(request)
+    if user_id is None:
+        return {"authenticated": False, "user": None}
+    user = (await db.execute(select(User).where(User.id == user_id))).scalars().first()
+    if not user:
+        return {"authenticated": False, "user": None}
+    return {"authenticated": True, "user": user_payload(user)}
 
-    result = await db.execute(select(User).where(User.username == user.username))
+
+@router.post("/register")
+async def register(request: Request, db: AsyncSession = Depends(get_db)):
+    user, error = await parse_form(request, UserCreate)
+    if error:
+        return error
+    email = user.email.lower()
+
+    result = await db.execute(select(User).where(func.lower(User.email) == email))
     if result.scalars().first():
-        raise HTTPException(status_code=400, detail="Username already taken")
+        return form_error("Email already registered")
+
+    result = await db.execute(select(User).where(func.lower(User.username) == user.username.lower()))
+    if result.scalars().first():
+        return form_error("Username already taken")
 
     new_user = User(
-        email=user.email,
+        email=email,
         username=user.username,
         first_name=user.first_name,
         last_name=user.last_name,
@@ -62,34 +93,42 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
     )
     db.add(new_user)
     await db.commit()
-    return {"message": "Registration successful"}
+    return {"ok": True, "message": "Registration successful"}
 
 
 @router.post("/login")
-async def login(response: Response, user: UserLogin, db: AsyncSession = Depends(get_db)):
+async def login(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+    credentials, error = await parse_form(request, UserLogin)
+    if error:
+        return form_error("Incorrect credentials")
+
+    identifier = credentials.identifier.strip()
     result = await db.execute(
-        select(User).where(or_(User.email == user.identifier, User.username == user.identifier))
+        select(User).where(or_(func.lower(User.email) == identifier.lower(), User.username == identifier))
     )
     db_user = result.scalars().first()
 
     if not db_user or not db_user.hashed_password:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect credentials")
-    if not verify_password(user.password, db_user.hashed_password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect credentials")
+        return form_error("Incorrect credentials")
+    if not verify_password(credentials.password, db_user.hashed_password):
+        return form_error("Incorrect credentials")
 
     set_auth_cookie(response, db_user.id)
-    return {"message": "Login successful"}
+    return {"ok": True, "message": "Login successful"}
 
 
 @router.post("/logout")
 async def logout(response: Response):
-    response.delete_cookie("access_token")
-    return {"message": "Logged out successfully"}
+    response.delete_cookie("access_token", samesite="lax")
+    return {"ok": True, "message": "Logged out successfully"}
 
 
 @router.post("/forgot-password")
-async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == data.email))
+async def forgot_password(request: Request, db: AsyncSession = Depends(get_db)):
+    data, error = await parse_form(request, ForgotPasswordRequest)
+    if error:
+        return error
+    result = await db.execute(select(User).where(func.lower(User.email) == data.email.lower()))
     user = result.scalars().first()
     if user:
         token = secrets.token_urlsafe(32)
@@ -100,20 +139,24 @@ async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depend
             await _send_reset_email(user.email, token)
         except Exception as e:
             print(f"[WARN] Failed to send reset email: {e}")
-    return {"message": "If this email is registered, you will receive a reset link."}
+    # Same answer either way, so the form cannot be used to discover accounts.
+    return {"ok": True, "message": "If this email is registered, you will receive a reset link."}
 
 
 @router.post("/reset-password")
-async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+async def reset_password(request: Request, db: AsyncSession = Depends(get_db)):
+    data, error = await parse_form(request, ResetPasswordRequest)
+    if error:
+        return error
     result = await db.execute(select(User).where(User.password_reset_token == data.token))
     user = result.scalars().first()
     if not user or not user.password_reset_expires:
-        raise HTTPException(status_code=400, detail="Invalid or expired token")
+        return form_error("Invalid or expired token")
     if datetime.now(timezone.utc) > user.password_reset_expires:
-        raise HTTPException(status_code=400, detail="Reset token has expired")
+        return form_error("Reset token has expired")
 
     user.hashed_password = get_password_hash(data.new_password)
     user.password_reset_token = None
     user.password_reset_expires = None
     await db.commit()
-    return {"message": "Password reset successfully"}
+    return {"ok": True, "message": "Password reset successfully"}

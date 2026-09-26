@@ -40,7 +40,16 @@ MEDIA_ROOT = Path(os.getenv("TORRENT_MEDIA_DIR", "/data/media"))
 SUBTITLES_ROOT = Path(os.getenv("TORRENT_SUBTITLES_DIR", "/data/subtitles"))
 RETENTION_DAYS = int(os.getenv("MEDIA_RETENTION_DAYS", "30"))
 
+# Played while downloading: ready once this many bytes from the START of the
+# film are on disk (pieces are fetched in order, see session_service).
 BUFFER_READY_BYTES = int(os.getenv("STREAM_BUFFER_BYTES", str(20 * 1024 * 1024)))
+# A converted (mkv...) stream is ready once FFmpeg has written this much.
+LIVE_READY_BYTES = int(os.getenv("STREAM_LIVE_READY_BYTES", str(1024 * 1024)))
+# How long a player request may wait for a piece before the response ends.
+STREAM_WAIT_SECONDS = float(os.getenv("STREAM_WAIT_SECONDS", "120"))
+
+# Optional: English / preferred-language subtitles for films with an IMDb id.
+OPENSUBTITLES_API_KEY = os.getenv("OPENSUBTITLES_API_KEY", "").strip()
 TORRENT_POLL_SECONDS = float(os.getenv("TORRENT_POLL_SECONDS", "1.0"))
 # A session must not sit at "buffering" forever with no explanation.
 METADATA_TIMEOUT_SECONDS = float(os.getenv("STREAM_METADATA_TIMEOUT", "90"))

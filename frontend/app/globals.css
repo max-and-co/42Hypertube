@@ -145,7 +145,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
    Auth — a title page, not a modal
    -------------------------------------------------------------------------- */
 .login-page, .register-page, .forgot-page, .reset-page, .settings-page {
-  min-height: 100vh;
+  min-height: 70vh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -372,3 +372,62 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .field-row { grid-template-columns: 1fr; gap: 26px; }
   .oauth-buttons { grid-template-columns: 1fr; gap: 18px; }
 }
+
+/* --------------------------------------------------------------------------
+   Shared shell: header, main, footer on every page
+   -------------------------------------------------------------------------- */
+.page-shell { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
+.page-shell > main { flex: 1; min-height: 0; }
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px var(--gutter) 15px;
+  border-bottom: 1px solid var(--rule);
+}
+.app-header-brand {
+  font-family: var(--font-display), Georgia, serif;
+  font-style: italic;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--ink);
+}
+.app-header-nav { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.app-header-nav a, .app-header-nav button {
+  padding: 3px 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  color: var(--ink-3);
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.app-header-nav a:hover, .app-header-nav button:hover { color: var(--ink); border-bottom-color: var(--rose); }
+
+.app-footer { padding: 40px var(--gutter) 28px; background: var(--bg-2); border-top: 1px solid var(--rule); }
+.app-footer-inner { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 24px; padding-bottom: 22px; border-bottom: 1px solid var(--rule); }
+.app-footer-brand { font-family: var(--font-display), Georgia, serif; font-style: italic; font-size: 1.5rem; }
+.app-footer-tagline { margin-top: 8px; font-size: 0.62rem; letter-spacing: 0.24em; text-transform: uppercase; color: var(--ink-3); }
+.app-footer-links { display: flex; flex-wrap: wrap; gap: 28px; align-items: center; }
+.app-footer-links a { font-size: 0.84rem; color: var(--ink-2); }
+.app-footer-links a:hover { color: var(--rose); }
+.app-footer-copy { padding-top: 18px; font-size: 0.66rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
+
+.field-hint { margin-top: 4px; font-size: 0.74rem; color: var(--ink-3); }
+.filter-error { margin-top: 10px; color: var(--danger); font-size: 0.85rem; }
+
+@media (max-width: 560px) {
+  .app-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .app-footer-inner { flex-direction: column; }
+}
+
+/* Native form controls: the site is dark, so ask the browser for its dark
+   widgets. Without this, an open <select> list is drawn on the system's white
+   background while the options inherit our light ink: white on white. */
+:root { color-scheme: dark; }
+select option, select optgroup { background-color: var(--bg-2); color: var(--ink); }

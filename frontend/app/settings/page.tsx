@@ -6,6 +6,13 @@ import Link from "next/link";
 import "./settings.css";
 import { useLanguage } from "../i18n/LanguageContext";
 import type { Lang } from "../i18n/translations";
+import { getSessionUser, sendForm, avatarUrl } from "../lib/api";
+import { emailError, firstError, nameError, usernameError } from "../lib/validation";
+import SiteHeader from "../components/SiteHeader";
+import SiteFooter from "../components/SiteFooter";
+
+const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
+const AVATAR_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
 const LANGUAGES = [
   { code: "en", label: "English" },
@@ -65,15 +72,9 @@ export default function Settings() {
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
 
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.replace("/login");
-  };
-
   useEffect(() => {
-    fetch("/api/users/me").then(async (res) => {
-      if (!res.ok) { router.replace("/login"); return; }
-      const data: UserData = await res.json();
+    getSessionUser().then((data) => {
+      if (!data) { router.replace("/login"); return; }
       setUser(data);
       setFirstName(data.first_name);
       setLastName(data.last_name);
@@ -89,42 +90,56 @@ export default function Settings() {
     e.preventDefault();
     setProfileError("");
     setProfileSuccess("");
+    const invalid = firstError(nameError(firstName), nameError(lastName), usernameError(username), emailError(email));
+    if (invalid) {
+      setProfileError(invalid);
+      return;
+    }
     setSaving(true);
-    try {
-      const res = await fetch("/api/users/me", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ first_name: firstName, last_name: lastName, username, email, preferred_language: language }),
-      });
-      if (res.ok) {
-        const updated: UserData = await res.json();
-        setUser(updated);
-        setProfileSuccess(t("settings.saved"));
-        setLang(language as Lang);
-      } else {
-        const data = await res.json();
-        setProfileError(data.detail || t("settings.update-failed"));
-      }
-    } catch {
-      setProfileError(t("error.generic"));
-    } finally {
-      setSaving(false);
+    const result = await sendForm<{ user: UserData }>(
+      "/api/users/me",
+      {
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        username: username.trim(),
+        email: email.trim(),
+        preferred_language: language,
+      },
+      "PATCH",
+    );
+    setSaving(false);
+    if (result.ok) {
+      setUser(result.user);
+      setProfileSuccess(t("settings.saved"));
+      setLang(language as Lang);
+    } else {
+      setProfileError(result.detail || t("settings.update-failed"));
     }
   };
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
     setAvatarError("");
+    // Checked before sending: nginx refuses bodies over 2 MB with a 413, which
+    // would show as an error in the console. The server re-checks the bytes.
+    if (!AVATAR_TYPES.includes(file.type)) {
+      setAvatarError(t("settings.avatar-type"));
+      return;
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      setAvatarError(t("settings.avatar-too-big"));
+      return;
+    }
     const formData = new FormData();
     formData.append("file", file);
     try {
       const res = await fetch("/api/users/me/avatar", { method: "POST", body: formData });
-      if (res.ok) {
-        const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok !== false) {
         setUser((prev) => prev ? { ...prev, profile_picture: data.profile_picture } : prev);
       } else {
-        const data = await res.json();
         setAvatarError(data.detail || t("settings.upload-failed"));
       }
     } catch {
@@ -137,11 +152,11 @@ export default function Settings() {
     setSearchQuery(q);
     setSelectedProfile(null);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
-    if (q.length < 2) { setSearchResults([]); return; }
+    if (q.trim().length < 2 || q.length > 30) { setSearchResults([]); return; }
     setSearching(true);
     searchTimeout.current = setTimeout(async () => {
       try {
-        const res = await fetch(`/api/users/search?q=${encodeURIComponent(q)}`);
+        const res = await fetch(`/api/users/search?q=${encodeURIComponent(q.trim())}`);
         if (res.ok) setSearchResults(await res.json());
       } finally {
         setSearching(false);
@@ -167,10 +182,9 @@ export default function Settings() {
   if (!user) return null;
 
   return (
-    <div className="settings-page">
-      <div className="vignette" />
-      <div className="scanlines" />
-      <div className="grain" />
+    <div className="page-shell">
+    <SiteHeader signedIn />
+    <main className="settings-page">
 
       <div className="settings-card f1">
         <div className="corner tl" />
@@ -193,7 +207,7 @@ export default function Settings() {
           <div className="avatar-wrap">
             {user.profile_picture ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={user.profile_picture} alt="Portrait" className="avatar-img" />
+              <img src={avatarUrl(user.profile_picture)} alt="Portrait" className="avatar-img" />
             ) : (
               <div className="avatar-placeholder">
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
@@ -206,7 +220,7 @@ export default function Settings() {
           <button className="avatar-upload-btn" onClick={() => fileInputRef.current?.click()} type="button">
             {t("settings.change-portrait")}
           </button>
-          <input ref={fileInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleAvatarChange} />
+          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" style={{ display: "none" }} onChange={handleAvatarChange} />
           {avatarError && <p className="error-msg" style={{ marginTop: "12px", marginBottom: 0 }}>⚠ {avatarError}</p>}
         </div>
 
@@ -218,24 +232,24 @@ export default function Settings() {
         {profileError && <p className="error-msg">⚠ {profileError}</p>}
         {profileSuccess && <p className="success-msg">✓ {profileSuccess}</p>}
 
-        <form onSubmit={handleProfileSave} className="settings-form f4">
+        <form onSubmit={handleProfileSave} className="settings-form f4" noValidate>
           <div className="field-row">
             <div className="field">
               <label className="field-label">{t("settings.first-name")}</label>
-              <input type="text" className="field-input" placeholder={t("settings.first-placeholder")} value={firstName} onChange={(e) => setFirstName(e.target.value)} required />
+              <input type="text" className="field-input" placeholder={t("settings.first-placeholder")} value={firstName} onChange={(e) => setFirstName(e.target.value)} maxLength={50} required />
             </div>
             <div className="field">
               <label className="field-label">{t("settings.last-name")}</label>
-              <input type="text" className="field-input" placeholder={t("settings.last-placeholder")} value={lastName} onChange={(e) => setLastName(e.target.value)} required />
+              <input type="text" className="field-input" placeholder={t("settings.last-placeholder")} value={lastName} onChange={(e) => setLastName(e.target.value)} maxLength={50} required />
             </div>
           </div>
           <div className="field">
             <label className="field-label">{t("settings.username")}</label>
-            <input type="text" className="field-input" placeholder={t("settings.username-placeholder")} value={username} onChange={(e) => setUsername(e.target.value)} required />
+            <input type="text" className="field-input" placeholder={t("settings.username-placeholder")} value={username} onChange={(e) => setUsername(e.target.value)} maxLength={30} required />
           </div>
           <div className="field">
             <label className="field-label">{t("settings.email")}</label>
-            <input type="email" className="field-input" placeholder={t("settings.email-placeholder")} value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <input type="email" className="field-input" placeholder={t("settings.email-placeholder")} value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} required />
           </div>
           <div className="field">
             <label className="field-label">{t("settings.lang")}</label>
@@ -269,6 +283,7 @@ export default function Settings() {
               placeholder={t("settings.search-placeholder")}
               value={searchQuery}
               onChange={handleSearchChange}
+              maxLength={30}
               autoComplete="off"
             />
             {(searching || loadingProfile) && <span className="search-spinner" />}
@@ -281,7 +296,7 @@ export default function Settings() {
               <div className="profile-avatar-wrap">
                 {selectedProfile.profile_picture ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={selectedProfile.profile_picture} alt={selectedProfile.username} className="profile-avatar-img" />
+                  <img src={avatarUrl(selectedProfile.profile_picture)} alt={selectedProfile.username} className="profile-avatar-img" />
                 ) : (
                   <div className="profile-avatar-placeholder">
                     <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
@@ -297,6 +312,7 @@ export default function Settings() {
                 <span className="profile-meta-label">{t("settings.language-label")}</span>
                 <span className="profile-meta-value">{LANG_LABELS[selectedProfile.preferred_language] ?? selectedProfile.preferred_language}</span>
               </div>
+              <Link href={`/users/${selectedProfile.id}`} className="back-link">{t("settings.open-profile")}</Link>
             </div>
           )}
 
@@ -308,7 +324,7 @@ export default function Settings() {
                   <div className="result-avatar">
                     {r.profile_picture ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={r.profile_picture} alt={r.username} className="result-avatar-img" />
+                      <img src={avatarUrl(r.profile_picture)} alt={r.username} className="result-avatar-img" />
                     ) : (
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                         <circle cx="12" cy="8" r="4" />
@@ -332,16 +348,10 @@ export default function Settings() {
 
         <div className="back-link-wrap f6">
           <Link href="/home" className="back-link">{t("settings.return-home")}</Link>
-          <button className="logout-btn" onClick={handleLogout}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-            {t("logout")}
-          </button>
         </div>
       </div>
+    </main>
+    <SiteFooter />
     </div>
   );
 }

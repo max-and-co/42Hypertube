@@ -1,10 +1,17 @@
+import asyncio
+import html
+import ipaddress
+import logging
+import re
+import socket
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 
 from config import (
     ARCHIVE_ADVANCEDSEARCH_URL,
+    ARCHIVE_METADATA_URL,
     DEFAULT_SOURCE,
     MAX_SEARCH_LIMIT,
     NOISY_ARCHIVE_TERMS,
@@ -16,6 +23,51 @@ from config import (
 )
 from services.common import as_float, as_int, as_text, as_text_list, truncate_text
 
+logger = logging.getLogger(__name__)
+
+
+class ProviderError(RuntimeError):
+    """Every requested source failed."""
+
+
+# ── Identifier validation ─────────────────────────────────────────────────────
+# Ids come from the browser and end up in URLs this service fetches, so they
+# are checked before any request: an archive identifier is a plain slug, and a
+# PeerTube id names a public host (never a container on our network).
+
+_ARCHIVE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
+_PEERTUBE_HOST = re.compile(r"^(?=.{1,253}$)([A-Za-z0-9-]{1,63}\.)+[A-Za-z]{2,63}$")
+_PEERTUBE_VIDEO = re.compile(r"^[A-Za-z0-9-]{8,64}$")
+
+
+async def _host_is_public(hostname: str) -> bool:
+    loop = asyncio.get_running_loop()
+    try:
+        infos = await loop.getaddrinfo(hostname, 443)
+    except (socket.gaierror, UnicodeError):
+        return False
+    for info in infos:
+        address = ipaddress.ip_address(info[4][0])
+        if not address.is_global:
+            return False
+    return bool(infos)
+
+
+async def validate_external_id(source: str, external_id: str) -> None:
+    """Raise ValueError when an id is malformed or points somewhere unsafe."""
+    if source == "archive":
+        if not _ARCHIVE_ID.fullmatch(external_id):
+            raise ValueError("Malformed archive.org identifier")
+        return
+    if source == "peertube":
+        host, uuid = split_peertube_external_id(external_id)
+        if not _PEERTUBE_HOST.fullmatch(host) or not _PEERTUBE_VIDEO.fullmatch(uuid):
+            raise ValueError("Malformed PeerTube id")
+        if not await _host_is_public(host):
+            raise ValueError("PeerTube host is not a public address")
+        return
+    raise ValueError(f"Unsupported source '{source}'")
+
 
 # ── Shared filtering / sorting ────────────────────────────────────────────────
 
@@ -25,7 +77,6 @@ def _apply_filters(
     genre: str | None,
     year_min: int | None,
     year_max: int | None,
-    imdb_min: float | None,
 ) -> list[dict[str, Any]]:
     normalized_genre = (genre or "").strip().lower()
     filtered: list[dict[str, Any]] = []
@@ -42,10 +93,6 @@ def _apply_filters(
         if year_max is not None and (year is None or year > year_max):
             continue
 
-        rating = as_float(movie.get("imdb_rating"))
-        if imdb_min is not None and (rating is None or rating < imdb_min):
-            continue
-
         filtered.append(movie)
 
     return filtered
@@ -58,22 +105,7 @@ def _sort_movies(movies: list[dict[str, Any]], sort_by: str, sort_dir: str) -> l
         return sorted(movies, key=lambda movie: str(movie.get("title") or "").lower(), reverse=reverse)
     if sort_by == "year":
         return sorted(movies, key=lambda movie: as_int(movie.get("year")) or 0, reverse=reverse)
-    if sort_by == "imdb_rating":
-        return sorted(movies, key=lambda movie: as_float(movie.get("imdb_rating")) or 0.0, reverse=reverse)
-    if sort_by == "seeders":
-        return sorted(movies, key=lambda movie: as_int(movie.get("seeders")) or 0, reverse=reverse)
-    if sort_by == "peers":
-        return sorted(movies, key=lambda movie: as_int(movie.get("peers")) or 0, reverse=reverse)
-
-    return sorted(
-        movies,
-        key=lambda movie: (
-            as_int(movie.get("downloads")) or 0,
-            as_int(movie.get("seeders")) or 0,
-            as_int(movie.get("peers")) or 0,
-        ),
-        reverse=reverse,
-    )
+    return sorted(movies, key=lambda movie: as_int(movie.get("downloads")) or 0, reverse=reverse)
 
 
 # ── Internet Archive ──────────────────────────────────────────────────────────
@@ -164,7 +196,6 @@ async def _search_archive(
     genre: str | None,
     year_min: int | None,
     year_max: int | None,
-    imdb_min: float | None,
 ) -> dict[str, Any]:
     archive_query = _build_archive_query(q)
     sort_suffix = "asc" if sort_dir.lower() == "asc" else "desc"
@@ -203,27 +234,13 @@ async def _search_archive(
 
     normalized = [_normalize_archive_doc(doc) for doc in docs if isinstance(doc, dict)]
     normalized = [movie for movie in normalized if _is_reasonable_archive_result(movie, has_query=bool(q.strip()))]
-    filtered = _apply_filters(normalized, genre=genre, year_min=year_min, year_max=year_max, imdb_min=imdb_min)
+    filtered = _apply_filters(normalized, genre=genre, year_min=year_min, year_max=year_max)
     sorted_results = _sort_movies(filtered, sort_by=sort_by, sort_dir=sort_dir)
-    total = len(filtered) if q.strip() else (as_int(search_response.get("numFound")) or len(sorted_results))
+    # The total is what archive.org matched, not what survived this page's
+    # filters: a page emptied by a filter must not end the infinite scroll.
+    total = as_int(search_response.get("numFound")) or 0
 
-    return {
-        "query": q,
-        "page": page,
-        "limit": limit,
-        "total": total,
-        "has_more": page * limit < total and len(sorted_results) > 0,
-        "applied_sort": {"sort_by": sort_by, "sort_dir": sort_dir},
-        "applied_filters": {
-            "genre": genre,
-            "year_min": year_min,
-            "year_max": year_max,
-            "imdb_min": imdb_min,
-        },
-        "source_provider": "archive",
-        "provider_used": ARCHIVE_ADVANCEDSEARCH_URL,
-        "results": sorted_results,
-    }
+    return {"total": total, "has_more": page * limit < total, "results": sorted_results}
 
 
 # ── PeerTube (via SepiaSearch) ────────────────────────────────────────────────
@@ -309,7 +326,6 @@ async def _search_peertube(
     genre: str | None,
     year_min: int | None,
     year_max: int | None,
-    imdb_min: float | None,
 ) -> dict[str, Any]:
     descending = sort_dir.lower() != "asc"
     if sort_by == "title":
@@ -325,6 +341,7 @@ async def _search_peertube(
         ("count", limit),
         ("sort", remote_sort),
     ]
+    params.append(("nsfw", "false"))
     for licence_id in PEERTUBE_FREE_LICENCES:
         params.append(("licenceOneOf", licence_id))
 
@@ -351,30 +368,33 @@ async def _search_peertube(
         if item is not None:
             normalized.append(item)
 
-    filtered = _apply_filters(normalized, genre=genre, year_min=year_min, year_max=year_max, imdb_min=imdb_min)
+    filtered = _apply_filters(normalized, genre=genre, year_min=year_min, year_max=year_max)
     sorted_results = _sort_movies(filtered, sort_by=sort_by, sort_dir=sort_dir)
-    total = as_int(payload.get("total")) or len(sorted_results)
+    total = as_int(payload.get("total")) or 0
 
-    return {
-        "query": q,
-        "page": page,
-        "limit": limit,
-        "total": total,
-        "has_more": page * limit < total and len(sorted_results) > 0,
-        "applied_sort": {"sort_by": sort_by, "sort_dir": sort_dir},
-        "applied_filters": {
-            "genre": genre,
-            "year_min": year_min,
-            "year_max": year_max,
-            "imdb_min": imdb_min,
-        },
-        "source_provider": "peertube",
-        "provider_used": PEERTUBE_SEARCH_URL,
-        "results": sorted_results,
-    }
+    return {"total": total, "has_more": page * limit < total, "results": sorted_results}
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
+
+
+def _interleave(first: list[dict[str, Any]], second: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Archive downloads and PeerTube views are not comparable numbers, so the
+    popularity order alternates the two sources' own rankings."""
+    merged: list[dict[str, Any]] = []
+    for index in range(max(len(first), len(second))):
+        if index < len(first):
+            merged.append(first[index])
+        if index < len(second):
+            merged.append(second[index])
+    return merged
+
+
+# The sources answer in 3-10 s; a page already fetched is reused for a few
+# minutes (going back, re-sorting, several users browsing the front page).
+_SEARCH_CACHE: dict[tuple, tuple[float, dict[str, Any]]] = {}
+SEARCH_CACHE_SECONDS = 300
+SEARCH_CACHE_MAX = 512
 
 
 async def search_movies(
@@ -387,7 +407,6 @@ async def search_movies(
     genre: str | None,
     year_min: int | None,
     year_max: int | None,
-    imdb_min: float | None,
 ) -> dict[str, Any]:
     page = max(page, 1)
     limit = max(1, min(limit, MAX_SEARCH_LIMIT))
@@ -397,18 +416,127 @@ async def search_movies(
         sort_by = "title"
         sort_dir = "asc"
 
-    provider = _search_peertube if source == "peertube" else _search_archive
-    return await provider(
-        q=q,
-        page=page,
-        limit=limit,
-        sort_by=sort_by,
-        sort_dir=sort_dir,
-        genre=genre,
-        year_min=year_min,
-        year_max=year_max,
-        imdb_min=imdb_min,
+    cache_key = (q.strip().lower(), page, limit, source, sort_by, sort_dir, genre, year_min, year_max)
+    now = asyncio.get_running_loop().time()
+    cached = _SEARCH_CACHE.get(cache_key)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    providers = {"archive": _search_archive, "peertube": _search_peertube}
+    names = list(providers) if source == "all" else [source]
+    # With both sources each contributes half a page, so pages stay the same size.
+    per_source = -(-limit // len(names))
+
+    answers = await asyncio.gather(
+        *(
+            providers[name](
+                q=q, page=page, limit=per_source, sort_by=sort_by, sort_dir=sort_dir,
+                genre=genre, year_min=year_min, year_max=year_max,
+            )
+            for name in names
+        ),
+        return_exceptions=True,
     )
+
+    ok: dict[str, dict[str, Any]] = {}
+    for name, answer in zip(names, answers):
+        if isinstance(answer, Exception):
+            logger.warning("Search source %s failed: %s", name, answer)
+        else:
+            ok[name] = answer
+    if not ok:
+        raise ProviderError("No search source answered")
+
+    lists = [ok[name]["results"] for name in names if name in ok]
+    if len(lists) == 2 and sort_by == "downloads":
+        results = _interleave(lists[0], lists[1])
+    else:
+        results = _sort_movies([m for part in lists for m in part], sort_by=sort_by, sort_dir=sort_dir)
+
+    failed = [name for name in names if name not in ok]
+    result = {
+        "query": q,
+        "page": page,
+        "limit": limit,
+        "total": sum(answer["total"] for answer in ok.values()),
+        "has_more": any(answer["has_more"] for answer in ok.values()),
+        "applied_sort": {"sort_by": sort_by, "sort_dir": sort_dir},
+        "sources": list(ok),
+        "warning": f"Unavailable right now: {', '.join(failed)}" if failed else None,
+        "results": results,
+    }
+    if not failed:
+        if len(_SEARCH_CACHE) >= SEARCH_CACHE_MAX:
+            _SEARCH_CACHE.pop(next(iter(_SEARCH_CACHE)))
+        _SEARCH_CACHE[cache_key] = (now + SEARCH_CACHE_SECONDS, result)
+    return result
+
+
+# ── Details (film page) ───────────────────────────────────────────────────────
+
+_TAGS = re.compile(r"<[^>]+>")
+
+
+def _plain_text(value: Any, max_length: int = 2000) -> str | None:
+    text = as_text(value)
+    if not text:
+        return None
+    text = html.unescape(_TAGS.sub(" ", text))
+    return truncate_text(text, max_length)
+
+
+def _runtime_minutes(value: Any) -> int | None:
+    text = as_text(value)
+    if not text:
+        return None
+    parts = text.split(":")
+    if len(parts) in (2, 3) and all(p.strip().isdigit() for p in parts):
+        numbers = [int(p) for p in parts]
+        seconds = numbers[-1] + 60 * numbers[-2] + (3600 * numbers[0] if len(numbers) == 3 else 0)
+        return max(1, round(seconds / 60))
+    match = re.match(r"\s*(\d+)", text)
+    return int(match.group(1)) if match else None
+
+
+async def fetch_details(source: str, external_id: str) -> dict[str, Any]:
+    """Metadata for the film page, read from the source itself."""
+    await validate_external_id(source, external_id)
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        if source == "archive":
+            response = await client.get(f"{ARCHIVE_METADATA_URL}/{quote(external_id)}")
+            response.raise_for_status()
+            metadata = (response.json() or {}).get("metadata") or {}
+            if not metadata:
+                raise LookupError("Unknown archive.org item")
+            genres: list[str] = []
+            for subject in as_text_list(metadata.get("subject")):
+                genres.extend(g.strip() for g in re.split(r"[;,]", subject) if g.strip())
+            return {
+                "title": as_text(metadata.get("title")) or external_id,
+                "year": _as_year(metadata),
+                "description": _plain_text(metadata.get("description")),
+                "thumbnail": f"https://archive.org/services/img/{external_id}",
+                "duration_minutes": _runtime_minutes(metadata.get("runtime")),
+                "genres": genres[:8],
+                "original_language": as_text(metadata.get("language")),
+            }
+
+        host, uuid = split_peertube_external_id(external_id)
+        response = await client.get(f"https://{host}/api/v1/videos/{uuid}")
+        response.raise_for_status()
+        video = response.json() or {}
+        category = video.get("category") if isinstance(video.get("category"), dict) else {}
+        language = video.get("language") if isinstance(video.get("language"), dict) else {}
+        preview = as_text(video.get("previewPath")) or as_text(video.get("thumbnailPath"))
+        return {
+            "title": as_text(video.get("name")) or "Untitled",
+            "year": _peertube_year(video),
+            "description": _plain_text(video.get("description")),
+            "thumbnail": f"https://{host}{preview}" if preview else None,
+            "duration_minutes": (as_int(video.get("duration")) or 0) // 60 or None,
+            "genres": [label] if (label := as_text(category.get("label"))) else [],
+            "original_language": as_text(language.get("id")),
+        }
 
 
 # ── Health checks ─────────────────────────────────────────────────────────────
