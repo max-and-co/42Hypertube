@@ -1,8 +1,12 @@
+import asyncio
+import contextlib
+import io
 import os
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, File, UploadFile
 from fastapi.responses import FileResponse
+from PIL import Image, ImageOps, UnidentifiedImageError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,18 +19,14 @@ router = APIRouter()
 
 os.makedirs("uploads", exist_ok=True)
 
-# An avatar is only ever stored with an extension we derive ourselves from the
-# file's magic bytes. The browser-supplied filename and Content-Type are both
-# attacker-controlled: without this, uploading HTML named "x.html" as
-# "image/png" would be served back as text/html from our own origin.
+# An avatar is only ever stored after Pillow has decoded it and written a new
+# file: the browser-supplied filename and Content-Type are attacker-controlled,
+# and checking magic bytes alone let "\x89PNG" + any text, or a PNG with an
+# HTML page appended, be stored as a picture. Re-encoding keeps only pixels
+# (no trailing payload, no EXIF/GPS metadata).
 MAX_AVATAR_BYTES = 2 * 1024 * 1024
-
-_IMAGE_SIGNATURES: list[tuple[bytes, str, str]] = [
-    (b"\x89PNG\r\n\x1a\n", "png", "image/png"),
-    (b"\xff\xd8\xff", "jpg", "image/jpeg"),
-    (b"GIF87a", "gif", "image/gif"),
-    (b"GIF89a", "gif", "image/gif"),
-]
+MAX_AVATAR_SIDE = 4096
+Image.MAX_IMAGE_PIXELS = MAX_AVATAR_SIDE * MAX_AVATAR_SIDE  # decompression bombs
 
 AVATAR_MEDIA_TYPES = {
     "png": "image/png",
@@ -36,14 +36,28 @@ AVATAR_MEDIA_TYPES = {
 }
 
 
-def sniff_image(content: bytes) -> tuple[str, str] | None:
-    """Return (extension, media_type) from magic bytes, or None if not an image."""
-    for signature, extension, media_type in _IMAGE_SIGNATURES:
-        if content.startswith(signature):
-            return extension, media_type
-    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
-        return "webp", "image/webp"
-    return None
+def reencode_image(content: bytes) -> tuple[bytes, str] | None:
+    """(new file bytes, extension) for a real PNG/JPEG/GIF/WebP, else None.
+    Photos stay JPEG; everything else becomes PNG (keeps transparency, first
+    frame of an animation)."""
+    try:
+        with Image.open(io.BytesIO(content)) as probe:
+            probe.verify()
+        with Image.open(io.BytesIO(content)) as image:
+            if image.format not in {"PNG", "JPEG", "GIF", "WEBP"}:
+                return None
+            if max(image.size) > MAX_AVATAR_SIDE:
+                return None
+            image.load()
+            out = io.BytesIO()
+            if image.format == "JPEG":
+                ImageOps.exif_transpose(image).convert("RGB").save(out, "JPEG", quality=90)
+                return out.getvalue(), "jpg"
+            frame = image.convert("RGBA" if "A" in image.getbands() or image.mode == "P" else "RGB")
+            frame.save(out, "PNG", optimize=True)
+            return out.getvalue(), "png"
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, SyntaxError, ValueError):
+        return None
 
 
 @router.get("/")
@@ -134,19 +148,26 @@ async def upload_avatar(
     if not content:
         return form_error("Uploaded file is empty")
 
-    sniffed = sniff_image(content)
-    if sniffed is None:
+    encoded = await asyncio.to_thread(reencode_image, content)
+    if encoded is None:
         return form_error("File must be a PNG, JPEG, GIF or WebP image")
 
-    ext, _ = sniffed
+    data, ext = encoded
     filename = f"{uuid.uuid4()}.{ext}"
     path = os.path.join("uploads", filename)
 
     with open(path, "wb") as f:
-        f.write(content)
+        f.write(data)
 
+    previous = user.profile_picture
     user.profile_picture = f"/api/users/avatars/{filename}"
     await db.commit()
+    # The replaced upload is not referenced any more.
+    if previous and previous.startswith("/api/users/avatars/"):
+        old_name = previous.rsplit("/", 1)[-1]
+        if "/" not in old_name and ".." not in old_name:
+            with contextlib.suppress(OSError):
+                os.remove(os.path.join("uploads", old_name))
     return {"ok": True, "profile_picture": user.profile_picture}
 
 
