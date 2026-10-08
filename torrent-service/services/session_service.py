@@ -124,50 +124,73 @@ async def _fetch_archive_torrent(external_id: str) -> bytes:
         return torrent.content
 
 
-async def _resolve_peertube_magnet(external_id: str) -> str:
-    """Every PeerTube video file exposes a ready-made magnet with a webseed."""
+MAX_TORRENT_FILE_BYTES = 4 * 1024 * 1024
+
+
+async def _fetch_peertube_torrent(external_id: str) -> tuple[bytes, str | None]:
+    """Download the .torrent of the best file up to 1080p, and that file's
+    current URL.
+
+    Not the magnet: PeerTube's peers are WebTorrent (WebRTC) browsers that
+    libtorrent cannot reach, and a webseed cannot serve torrent metadata, so a
+    magnet never gets past "downloading metadata". The .torrent carries the
+    metadata and the instance's HTTP webseed.
+    """
     host, uuid = split_peertube_external_id(external_id)
     async with httpx.AsyncClient(timeout=20.0, follow_redirects=False) as client:
         response = await client.get(f"https://{host}/api/v1/videos/{uuid}")
         response.raise_for_status()
         payload = response.json()
+        if not isinstance(payload, dict):
+            raise RuntimeError(f"Unexpected PeerTube payload for '{external_id}'")
 
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"Unexpected PeerTube payload for '{external_id}'")
+        candidates: list[dict[str, Any]] = [e for e in payload.get("files") or [] if isinstance(e, dict)]
+        for playlist in payload.get("streamingPlaylists") or []:
+            if isinstance(playlist, dict):
+                candidates.extend(e for e in playlist.get("files") or [] if isinstance(e, dict))
 
-    candidates: list[dict[str, Any]] = [e for e in payload.get("files") or [] if isinstance(e, dict)]
-    for playlist in payload.get("streamingPlaylists") or []:
-        if isinstance(playlist, dict):
-            candidates.extend(e for e in playlist.get("files") or [] if isinstance(e, dict))
+        def resolution_of(entry: dict[str, Any]) -> int:
+            resolution = entry.get("resolution")
+            try:
+                return int(resolution.get("id") or 0) if isinstance(resolution, dict) else 0
+            except (TypeError, ValueError):
+                return 0
 
-    def resolution_of(entry: dict[str, Any]) -> int:
-        resolution = entry.get("resolution")
-        try:
-            return int(resolution.get("id") or 0) if isinstance(resolution, dict) else 0
-        except (TypeError, ValueError):
-            return 0
+        # Only from the video's own instance: the URL comes from its API.
+        playable = [
+            entry for entry in candidates
+            if str(entry.get("torrentUrl") or "").startswith(f"https://{host}/")
+        ]
+        if not playable:
+            raise RuntimeError(f"PeerTube video '{external_id}' exposes no torrent")
+        within_budget = [entry for entry in playable if resolution_of(entry) <= 1080]
+        chosen = max(within_budget or playable, key=resolution_of)
 
-    playable = [entry for entry in candidates if entry.get("magnetUri")]
-    if not playable:
-        raise RuntimeError(f"PeerTube video '{external_id}' exposes no torrent")
-
-    within_budget = [entry for entry in playable if resolution_of(entry) <= 1080]
-    chosen = max(within_budget or playable, key=resolution_of)
-    return str(chosen["magnetUri"])
+        torrent = await client.get(str(chosen["torrentUrl"]))
+        torrent.raise_for_status()
+        if len(torrent.content) > MAX_TORRENT_FILE_BYTES:
+            raise RuntimeError(f"PeerTube torrent for '{external_id}' is too large")
+        # Torrents made before PeerTube 6 name a webseed under /static/webseed/,
+        # which now answers 404: the API's fileUrl is where the file lives today.
+        file_url = str(chosen.get("fileUrl") or "")
+        return torrent.content, file_url if file_url.startswith(f"https://{host}/") else None
 
 
 async def build_torrent_params(source: str, external_id: str, target_dir: Path):
-    """archive -> the published .torrent (with webseeds); peertube -> magnet."""
+    """The source's published .torrent, which carries the HTTP webseeds."""
+    extra_webseed: str | None = None
     if source == "archive":
         data = await _fetch_archive_torrent(external_id)
-        torrent_path = target_dir / f"{slugify(external_id)}.torrent"
-        torrent_path.write_bytes(data)
-        params = lt.add_torrent_params()
-        params.ti = lt.torrent_info(str(torrent_path))
     elif source == "peertube":
-        params = lt.parse_magnet_uri(await _resolve_peertube_magnet(external_id))
+        data, extra_webseed = await _fetch_peertube_torrent(external_id)
     else:
         raise RuntimeError(f"Unsupported source '{source}'")
+    torrent_path = target_dir / f"{slugify(external_id)}.torrent"
+    torrent_path.write_bytes(data)
+    params = lt.add_torrent_params()
+    params.ti = lt.torrent_info(str(torrent_path))
+    if extra_webseed:
+        params.url_seeds = [extra_webseed]
 
     params.save_path = str(target_dir)
     params.storage_mode = lt.storage_mode_t.storage_mode_sparse
