@@ -139,10 +139,16 @@ export default function Home() {
 
         const incoming = Array.isArray(data.results) ? data.results : [];
         setWarning(data.warning || null);
+        // archive.org often holds several uploads of one film: show it once.
         setMovies((prev) => {
-          if (reset) return incoming;
-          const known = new Set(prev.map((m) => `${m.source}:${m.id}`));
-          return [...prev, ...incoming.filter((m) => !known.has(`${m.source}:${m.id}`))];
+          const known = new Set<string>();
+          const fresh = (m: DiscoverMovie) => {
+            const keys = [`${m.source}:${m.id}`, `${m.title.trim().toLowerCase()}|${m.year ?? ""}`];
+            if (keys.some((k) => known.has(k))) return false;
+            keys.forEach((k) => known.add(k));
+            return true;
+          };
+          return [...(reset ? [] : prev), ...incoming].filter(fresh);
         });
         setPage(targetPage);
         setHasMore(Boolean(data.has_more));
