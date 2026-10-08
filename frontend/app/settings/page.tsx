@@ -7,6 +7,7 @@ import "./settings.css";
 import { useLanguage } from "../i18n/LanguageContext";
 import type { Lang } from "../i18n/translations";
 import { getSessionUser, sendForm, avatarUrl } from "../lib/api";
+import { localize } from "../lib/messages";
 import { emailError, firstError, nameError, usernameError } from "../lib/validation";
 import SiteHeader from "../components/SiteHeader";
 import SiteFooter from "../components/SiteFooter";
@@ -222,7 +223,7 @@ export default function Settings() {
             {t("settings.change-portrait")}
           </button>
           <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" style={{ display: "none" }} onChange={handleAvatarChange} />
-          {avatarError && <p className="error-msg" style={{ marginTop: "12px", marginBottom: 0 }}>⚠ {avatarError}</p>}
+          {avatarError && <p className="error-msg" style={{ marginTop: "12px", marginBottom: 0 }}>⚠ {localize(avatarError, t)}</p>}
         </div>
 
         <hr className="section-divider" />
@@ -230,7 +231,7 @@ export default function Settings() {
         {/* Profile form */}
         <p className="section-label f4">{t("settings.personal")}</p>
 
-        {profileError && <p className="error-msg">⚠ {profileError}</p>}
+        {profileError && <p className="error-msg">⚠ {localize(profileError, t)}</p>}
         {profileSuccess && <p className="success-msg">✓ {profileSuccess}</p>}
 
         <form onSubmit={handleProfileSave} className="settings-form f4" noValidate>

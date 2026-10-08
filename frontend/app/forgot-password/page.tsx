@@ -5,6 +5,7 @@ import Link from "next/link";
 import "./forgot-password.css";
 import { useLanguage } from "../i18n/LanguageContext";
 import { sendForm } from "../lib/api";
+import { localize } from "../lib/messages";
 import { emailError } from "../lib/validation";
 import SiteHeader from "../components/SiteHeader";
 import SiteFooter from "../components/SiteFooter";
@@ -51,7 +52,7 @@ export default function ForgotPassword() {
 
         <p className="section-label f3">{t("forgot.section")}</p>
 
-        {error && <p className="error-msg">⚠ {error}</p>}
+        {error && <p className="error-msg">⚠ {localize(error, t)}</p>}
 
         {success ? (
           <div className="success-box f4">

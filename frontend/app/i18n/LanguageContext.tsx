@@ -23,6 +23,11 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     if (stored === "fr" || stored === "es") setLangState(stored);
   }, []);
 
+  // Screen readers and the browser's spell-check follow the page language.
+  useEffect(() => {
+    document.documentElement.lang = lang;
+  }, [lang]);
+
   const setLang = useCallback((l: Lang) => {
     setLangState(l);
     localStorage.setItem("lang", l);

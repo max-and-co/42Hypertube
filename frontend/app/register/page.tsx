@@ -7,6 +7,7 @@ import "./register.css";
 import { useLanguage } from "../i18n/LanguageContext";
 import type { Lang } from "../i18n/translations";
 import { getSessionUser, sendForm } from "../lib/api";
+import { localize } from "../lib/messages";
 import { emailError, firstError, nameError, passwordError, usernameError } from "../lib/validation";
 import SiteHeader from "../components/SiteHeader";
 import SiteFooter from "../components/SiteFooter";
@@ -85,7 +86,7 @@ export default function Register() {
 
           <p className="section-label f3">{t("register.section")}</p>
 
-          {error && <p className="error-msg" role="alert">⚠ {error}</p>}
+          {error && <p className="error-msg" role="alert">⚠ {localize(error, t)}</p>}
 
           <form onSubmit={handleRegister} className="register-form" noValidate>
             <div className="field-row f3">

@@ -6,6 +6,7 @@ import Link from "next/link";
 import "./login.css";
 import { useLanguage } from "../i18n/LanguageContext";
 import { getSessionUser, sendForm } from "../lib/api";
+import { localize } from "../lib/messages";
 import SiteHeader from "../components/SiteHeader";
 import SiteFooter from "../components/SiteFooter";
 
@@ -58,7 +59,7 @@ export default function Login() {
 
           <p className="section-label f3">{t("login.section")}</p>
 
-          {error && <p className="error-msg" role="alert">⚠ {error}</p>}
+          {error && <p className="error-msg" role="alert">⚠ {localize(error, t)}</p>}
 
           <form onSubmit={handleLogin} className="login-form" noValidate>
             <div className="field f4">

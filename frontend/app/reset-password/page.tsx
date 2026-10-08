@@ -6,6 +6,7 @@ import Link from "next/link";
 import "./reset-password.css";
 import { useLanguage } from "../i18n/LanguageContext";
 import { sendForm } from "../lib/api";
+import { localize } from "../lib/messages";
 import { passwordError } from "../lib/validation";
 import SiteHeader from "../components/SiteHeader";
 import SiteFooter from "../components/SiteFooter";
@@ -72,7 +73,7 @@ function ResetPasswordForm() {
 
         <p className="section-label f3">{t("reset.section")}</p>
 
-        {error && <p className="error-msg">⚠ {error}</p>}
+        {error && <p className="error-msg">⚠ {localize(error, t)}</p>}
 
         {success ? (
           <div className="success-box f4">

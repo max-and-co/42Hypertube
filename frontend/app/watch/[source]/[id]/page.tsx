@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import "./watch.css";
 import { useLanguage } from "../../../i18n/LanguageContext";
 import { getSessionUser, logout } from "../../../lib/api";
+import { localize } from "../../../lib/messages";
 import { commentError, MAX_COMMENT_LENGTH } from "../../../lib/validation";
 import SiteFooter from "../../../components/SiteFooter";
 
@@ -293,7 +294,7 @@ export default function WatchPage() {
                   rows={3}
                 />
                 <p className="field-hint">{commentDraft.trim().length} / {MAX_COMMENT_LENGTH}</p>
-                {commentError_ && <p className="filter-error" role="alert">{commentError_}</p>}
+                {commentError_ && <p className="filter-error" role="alert">{localize(commentError_, t)}</p>}
                 <button type="submit" disabled={commentSubmitting || !commentDraft.trim()}>
                   {commentSubmitting ? t("watch.posting") : t("watch.post")}
                 </button>
