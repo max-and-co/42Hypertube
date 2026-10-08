@@ -17,7 +17,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth import get_current_user_id, get_db, create_service_token
+from auth import get_current_user_id, get_db, create_service_token, form_error, parse_form
 from models import Movie, Comment, ExternalMovieCache, MovieWatchState, User
 from ratings import normalize_title, rating_of, ratings_for
 from schemas import CommentCreate, WatchToggleRequest, ExternalMovieIngestRequest
@@ -727,17 +727,19 @@ async def _fetch_source_details(request: Request, source: str, external_id: str)
 
 
 @router.post("/movies/external/ingest", status_code=status.HTTP_201_CREATED)
-async def ingest_external_movie(
-    request: Request,
-    data: ExternalMovieIngestRequest,
-    db: AsyncSession = Depends(get_db),
-):
+async def ingest_external_movie(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Canonicalize an external movie into a local `movies` row so watch/comments
     APIs can always target a stable local movie id. The body only names the
     film; every displayed field comes from the source and OMDb/TMDb.
+
+    Only the film page calls this: an unknown or refused film is an expected
+    answer (a stale link), so it is a 200 {"ok": false} like any form refusal.
     """
     get_current_user_id(request)
+    data, error = await parse_form(request, ExternalMovieIngestRequest)
+    if error:
+        return form_error("This video could not be found at its source")
     source = data.source
     external_id = data.external_id.strip()
 
@@ -747,7 +749,7 @@ async def ingest_external_movie(
 
     details = await _fetch_source_details(request, source, external_id)
     if details is None and movie is None:
-        raise HTTPException(status_code=404, detail="This video could not be found at its source")
+        return form_error("This video could not be found at its source")
     details = details or {}
 
     source_title = _str_or_none(details.get("title")) or (movie.title if movie else "Untitled")
@@ -813,7 +815,7 @@ async def ingest_external_movie(
             raise HTTPException(status_code=409, detail="Movie ingest conflict, please retry") from exc
 
     await db.refresh(movie)
-    return {"movie_id": movie.id, "source": source, "external_id": external_id}
+    return {"ok": True, "movie_id": movie.id, "source": source, "external_id": external_id}
 
 
 # ── Comments on a movie ───────────────────────────────────────────────────────

@@ -108,8 +108,9 @@ export default function WatchPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source, external_id: externalId }),
       });
-      if (!ingestResponse.ok) throw new Error(t("watch.not-found"));
-      const { movie_id } = (await ingestResponse.json()) as { movie_id: number };
+      const ingest = (await ingestResponse.json().catch(() => ({}))) as { ok?: boolean; movie_id?: number };
+      if (!ingestResponse.ok || ingest.ok === false || !ingest.movie_id) throw new Error(t("watch.not-found"));
+      const movie_id = ingest.movie_id;
       setMovieId(movie_id);
 
       const movieResponse = await fetch(`/api/movies/${movie_id}`);
