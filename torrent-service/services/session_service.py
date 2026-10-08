@@ -42,7 +42,7 @@ from config import (
 )
 from runtime_state import LiveOutput, TorrentFile
 from services import subtitle_service
-from services.common import is_subtitle_file, is_video_file, now_iso, session_key, slugify
+from services.common import is_subtitle_file, is_video_file, normalize_language, now_iso, session_key, slugify
 from services.db_service import fetch_movie, fetch_user_pref_language, update_movie_state
 from services.search_service import split_peertube_external_id, validate_external_id
 
@@ -306,12 +306,16 @@ async def _mark_ready(session_id: str, movie_id: int, video_path: Path, mode: st
 
 
 async def _publish_subtitles(session_id: str, movie: dict[str, Any], paths: list[Path], preferred: str) -> None:
+    # Auto captions carry no language in their name: they transcribe the
+    # film's own language (English when archive.org does not say).
+    spoken = normalize_language(movie.get("original_language")) or "en"
     tracks: list[dict[str, str]] = []
     for path in paths:
         if path.exists():
             usable = await subtitle_service.to_vtt(path)
             if usable is not None:
-                tracks.append(subtitle_service.track(usable, session_id))
+                hint = spoken if subtitle_service.is_auto_caption(path) else None
+                tracks.append(subtitle_service.track(usable, session_id, hint))
     if not tracks:
         return
 
@@ -319,8 +323,8 @@ async def _publish_subtitles(session_id: str, movie: dict[str, Any], paths: list
         session = runtime_state.STREAM_SESSIONS.get(session_id)
         if session is None:
             return
-        known = {t["local_path"] for t in session["subtitle_tracks"]}
-        merged = session["subtitle_tracks"] + [t for t in tracks if t["local_path"] not in known]
+        # "x.srt" and its converted "x.vtt" are the same track: keep one.
+        merged = list({t["local_path"]: t for t in session["subtitle_tracks"] + tracks}.values())
         merged.sort(key=lambda t: 0 if t["language"] == preferred else (1 if t["language"] == "en" else 2))
         session["subtitle_tracks"] = merged
         languages = {t["language"] for t in merged}

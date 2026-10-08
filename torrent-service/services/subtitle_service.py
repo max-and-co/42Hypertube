@@ -171,11 +171,22 @@ async def opensubtitles(imdb_id: str | None, source: str, external_id: str, lang
     return found
 
 
+_LABELS = {"en": "English", "fr": "Français", "es": "Español"}
+
+
+def is_auto_caption(path: Path) -> bool:
+    """archive.org's speech-recognition captions: "<item>.asr.srt"."""
+    return ".asr." in path.name.lower()
+
+
 def track(path: Path, session_id: str, origin_hint: str | None = None) -> dict[str, str]:
     language = language_from_name(path.name) or origin_hint or "und"
+    label = _LABELS.get(language, language.upper()) if language != "und" else "Unknown"
+    if is_auto_caption(path):
+        label += " (auto)"
     return {
         "language": language,
-        "label": language.upper() if language != "und" else "Unknown",
+        "label": label,
         "url": f"/api/subtitles/{session_id}/{quote(path.name)}",
         "local_path": str(path),
     }
