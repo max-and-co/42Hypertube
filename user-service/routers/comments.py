@@ -24,6 +24,7 @@ async def list_comments(request: Request, db: AsyncSession = Depends(get_db)):
     return [
         {
             "id": row.Comment.id,
+            "comment": row.Comment.content,  # the field name the subject's API uses
             "content": row.Comment.content,
             "author_id": row.Comment.author_id,
             "author_username": row.author_username,
@@ -49,6 +50,7 @@ async def get_comment(comment_id: int, request: Request, db: AsyncSession = Depe
         raise HTTPException(status_code=404, detail="Comment not found")
     return {
         "id": row.Comment.id,
+        "comment": row.Comment.content,  # the field name the subject's API uses
         "content": row.Comment.content,
         "author_id": row.Comment.author_id,
         "author_username": row.author_username,
@@ -77,7 +79,7 @@ async def update_comment(
         comment.content = data.comment
     await db.commit()
     await db.refresh(comment)
-    return {"id": comment.id, "content": comment.content}
+    return {"id": comment.id, "comment": comment.content, "content": comment.content}
 
 
 @router.delete("/comments/{comment_id:int}", status_code=status.HTTP_204_NO_CONTENT)
@@ -116,6 +118,7 @@ async def create_comment(
     await db.refresh(comment)
     return {
         "id": comment.id,
+        "comment": comment.content,  # the field name the subject's API uses
         "content": comment.content,
         "author_id": comment.author_id,
         "movie_id": comment.movie_id,

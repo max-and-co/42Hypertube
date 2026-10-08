@@ -848,6 +848,7 @@ async def list_comments_for_movie(
     return [
         {
             "id": row.Comment.id,
+            "comment": row.Comment.content,  # the field name the subject's API uses
             "content": row.Comment.content,
             "author_id": row.Comment.author_id,
             "author_username": row.author_username,
@@ -882,6 +883,7 @@ async def create_comment_for_movie(
 
     return {
         "id": comment.id,
+        "comment": comment.content,  # the field name the subject's API uses
         "content": comment.content,
         "author_id": comment.author_id,
         "author_username": author_username,
