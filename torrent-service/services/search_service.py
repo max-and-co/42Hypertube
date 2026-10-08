@@ -11,6 +11,8 @@ import httpx
 
 from config import (
     ARCHIVE_ADVANCEDSEARCH_URL,
+    ARCHIVE_COLLECTIONS,
+    ARCHIVE_LICENCE_MARKER,
     ARCHIVE_METADATA_URL,
     DEFAULT_SOURCE,
     MAX_SEARCH_LIMIT,
@@ -20,6 +22,7 @@ from config import (
     PEERTUBE_BROWSE_MIN_DURATION,
     PEERTUBE_FREE_LICENCES,
     PEERTUBE_SEARCH_URL,
+    PEERTUBE_TRUSTED_HOSTS,
 )
 from services.common import as_float, as_int, as_text, as_text_list, truncate_text
 
@@ -63,6 +66,8 @@ async def validate_external_id(source: str, external_id: str) -> None:
         host, uuid = split_peertube_external_id(external_id)
         if not _PEERTUBE_HOST.fullmatch(host) or not _PEERTUBE_VIDEO.fullmatch(uuid):
             raise ValueError("Malformed PeerTube id")
+        if host.lower() not in PEERTUBE_TRUSTED_HOSTS:
+            raise ValueError("PeerTube host is not an allowed source")
         if not await _host_is_public(host):
             raise ValueError("PeerTube host is not a public address")
         return
@@ -111,15 +116,21 @@ def _sort_movies(movies: list[dict[str, Any]], sort_by: str, sort_dir: str) -> l
 # ── Internet Archive ──────────────────────────────────────────────────────────
 
 
+_ARCHIVE_SCOPE = (
+    f"mediatype:(movies) AND collection:({' OR '.join(ARCHIVE_COLLECTIONS)}) "
+    f"AND licenseurl:*{ARCHIVE_LICENCE_MARKER}*"
+)
+
+
 def _build_archive_query(query: str) -> str:
     cleaned = " ".join(query.strip().split())
     if not cleaned:
-        return "mediatype:(movies) AND (collection:(feature_films) OR subject:(film) OR subject:(movie))"
+        return _ARCHIVE_SCOPE
 
     escaped = cleaned.replace("\\", "\\\\").replace('"', '\\"')
     phrase = f'"{escaped}"'
     return (
-        "mediatype:(movies) "
+        f"{_ARCHIVE_SCOPE} "
         f"AND ({phrase} OR title:{phrase} OR description:{phrase} OR creator:{phrase}) "
         "AND -title:(template OR test OR tutorial)"
     )
@@ -336,43 +347,58 @@ async def _search_peertube(
         # PeerTube has no ratings/seeders; views is the closest popularity signal.
         remote_sort = "-views"
 
-    params: list[tuple[str, Any]] = [
-        ("start", (page - 1) * limit),
-        ("count", limit),
+    # SepiaSearch filters on one host per query: each trusted instance gets
+    # its share of the page, asked in parallel.
+    per_host = -(-limit // len(PEERTUBE_TRUSTED_HOSTS))
+    base_params: list[tuple[str, Any]] = [
+        ("start", (page - 1) * per_host),
+        ("count", per_host),
         ("sort", remote_sort),
+        ("nsfw", "false"),
     ]
-    params.append(("nsfw", "false"))
     for licence_id in PEERTUBE_FREE_LICENCES:
-        params.append(("licenceOneOf", licence_id))
+        base_params.append(("licenceOneOf", licence_id))
 
     if q.strip():
-        params.append(("search", q.strip()))
+        base_params.append(("search", q.strip()))
     else:
-        # Browsing: restrict to feature-length so the catalogue looks like films.
-        params.append(("durationMin", PEERTUBE_BROWSE_MIN_DURATION))
+        # Browsing: skip short clips so the catalogue looks like films.
+        base_params.append(("durationMin", PEERTUBE_BROWSE_MIN_DURATION))
+
+    async def search_host(client: httpx.AsyncClient, host: str) -> dict[str, Any]:
+        response = await client.get(PEERTUBE_SEARCH_URL, params=[*base_params, ("host", host)])
+        response.raise_for_status()
+        answer = response.json()
+        return answer if isinstance(answer, dict) else {}
 
     async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
-        response = await client.get(PEERTUBE_SEARCH_URL, params=params)
-        response.raise_for_status()
-        payload = response.json()
-
-    data = payload.get("data", []) if isinstance(payload, dict) else []
-    if not isinstance(data, list):
-        data = []
+        answers = await asyncio.gather(
+            *(search_host(client, host) for host in PEERTUBE_TRUSTED_HOSTS), return_exceptions=True
+        )
+    pages = [answer for answer in answers if isinstance(answer, dict)]
+    if not pages:
+        raise answers[0]
 
     normalized: list[dict[str, Any]] = []
-    for video in data:
-        if not isinstance(video, dict):
-            continue
-        item = _normalize_peertube_video(video)
-        if item is not None:
-            normalized.append(item)
+    for answer in pages:
+        data = answer.get("data", [])
+        for video in data if isinstance(data, list) else []:
+            if not isinstance(video, dict):
+                continue
+            item = _normalize_peertube_video(video)
+            # Belt and braces: never trust that the index honoured the host filter.
+            if item is not None and item["external_id"].split(":", 1)[0] in PEERTUBE_TRUSTED_HOSTS:
+                normalized.append(item)
 
     filtered = _apply_filters(normalized, genre=genre, year_min=year_min, year_max=year_max)
     sorted_results = _sort_movies(filtered, sort_by=sort_by, sort_dir=sort_dir)
-    total = as_int(payload.get("total")) or 0
+    totals = [as_int(answer.get("total")) or 0 for answer in pages]
 
-    return {"total": total, "has_more": page * limit < total, "results": sorted_results}
+    return {
+        "total": sum(totals),
+        "has_more": any(page * per_host < total for total in totals),
+        "results": sorted_results,
+    }
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -508,6 +534,10 @@ async def fetch_details(source: str, external_id: str) -> dict[str, Any]:
             metadata = (response.json() or {}).get("metadata") or {}
             if not metadata:
                 raise LookupError("Unknown archive.org item")
+            if not set(as_text_list(metadata.get("collection"))) & set(ARCHIVE_COLLECTIONS):
+                raise LookupError("archive.org item is not in an allowed collection")
+            if ARCHIVE_LICENCE_MARKER not in (as_text(metadata.get("licenseurl")) or "").lower():
+                raise LookupError("archive.org item is not marked public domain")
             genres: list[str] = []
             for subject in as_text_list(metadata.get("subject")):
                 genres.extend(g.strip() for g in re.split(r"[;,]", subject) if g.strip())

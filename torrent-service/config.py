@@ -19,13 +19,31 @@ ARCHIVE_TRACKERS = [
 PEERTUBE_SEARCH_URL = os.getenv(
     "PEERTUBE_SEARCH_URL", "https://sepiasearch.org/api/v1/search/videos"
 ).strip()
+# archive.org: only the Feature Films collection, and only items marked public
+# domain (PD mark, CC0, legacy "publicdomain"). The open community uploads
+# (opensource_movies...) are excluded, and so are Creative Commons claims:
+# uploaders put "CC BY 4.0" on Blu-ray rips of recent films.
+ARCHIVE_COLLECTIONS = ("feature_films",)
+ARCHIVE_LICENCE_MARKER = "publicdomain"
+
+# PeerTube licences are declared by the uploader and are not checked by
+# anyone (pony.tube labels whole My Little Pony films "Public Domain"). Only
+# instances that publish their own free content are searched and played.
+PEERTUBE_TRUSTED_HOSTS = tuple(
+    host.strip().lower()
+    for host in os.getenv(
+        "PEERTUBE_TRUSTED_HOSTS", "video.blender.org,peertube.debian.social,framatube.org"
+    ).split(",")
+    if host.strip()
+)
+
 # PeerTube licence ids: 1 CC-BY, 2 CC-BY-SA, 3 CC-BY-ND, 4 CC-BY-NC,
 # 5 CC-BY-NC-SA, 6 CC-BY-NC-ND, 7 Public Domain. Anything outside this set
 # ("Unknown" / "All Rights Reserved") is never surfaced.
 PEERTUBE_FREE_LICENCES = [1, 2, 3, 4, 5, 6, 7]
 # When browsing (no search term) only show feature-length content, so the
 # catalogue reads like a film library rather than a pile of short clips.
-PEERTUBE_BROWSE_MIN_DURATION = int(os.getenv("PEERTUBE_BROWSE_MIN_DURATION", "2400"))
+PEERTUBE_BROWSE_MIN_DURATION = int(os.getenv("PEERTUBE_BROWSE_MIN_DURATION", "600"))
 
 OMDB_BASE_URL = "https://www.omdbapi.com/"
 OMDB_API_KEY = os.getenv("OMDB_API_KEY", "").strip()
