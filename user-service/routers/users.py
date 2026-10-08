@@ -193,13 +193,19 @@ async def get_avatar(filename: str):
 
 
 @router.get("/profile/{user_id}")
-async def get_user_profile(user_id: int, request: Request, db: AsyncSession = Depends(get_db)):
+async def get_user_profile(user_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Public profile for the profile page (the REST API is GET /users/:id).
+    A stale or mistyped profile link is an expected answer: 200 {"ok": false},
+    so the browser console stays clean."""
     get_current_user_id(request)
-    result = await db.execute(select(User).where(User.id == user_id))
+    if not user_id.isdigit() or len(user_id) > 9:
+        return form_error("User not found")
+    result = await db.execute(select(User).where(User.id == int(user_id)))
     user = result.scalars().first()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        return form_error("User not found")
     return {
+        "ok": True,
         "id": user.id,
         "username": user.username,
         "first_name": user.first_name,

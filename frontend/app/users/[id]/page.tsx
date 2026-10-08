@@ -40,7 +40,8 @@ export default function UserProfilePage() {
         return;
       }
       const res = await fetch(`/api/users/profile/${id}`);
-      if (res.ok) setProfile(await res.json());
+      const data = res.ok ? await res.json() : null;
+      if (data && data.ok !== false) setProfile(data);
       else setMissing(true);
     });
   }, [params.id, router]);

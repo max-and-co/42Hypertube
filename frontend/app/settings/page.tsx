@@ -169,7 +169,8 @@ export default function Settings() {
     setSelectedProfile(null);
     try {
       const res = await fetch(`/api/users/profile/${id}`);
-      if (res.ok) setSelectedProfile(await res.json());
+      const data = res.ok ? await res.json() : null;
+      if (data && data.ok !== false) setSelectedProfile(data);
     } finally {
       setLoadingProfile(false);
     }
