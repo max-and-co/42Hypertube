@@ -25,6 +25,11 @@ PEERTUBE_SEARCH_URL = os.getenv(
 # uploaders put "CC BY 4.0" on Blu-ray rips of recent films.
 ARCHIVE_COLLECTIONS = ("feature_films",)
 ARCHIVE_LICENCE_MARKER = "publicdomain"
+# Even the "public domain" mark is claimed on recent rips (Haider 2014, 1080p
+# kung-fu re-uploads from 2025). Public-domain films are older works: produced
+# before 1978 and uploaded while the collection was still curated.
+ARCHIVE_MAX_YEAR = 1977
+ARCHIVE_UPLOADED_BEFORE = "2020-01-01"
 
 # PeerTube licences are declared by the uploader and are not checked by
 # anyone (pony.tube labels whole My Little Pony films "Public Domain"). Only

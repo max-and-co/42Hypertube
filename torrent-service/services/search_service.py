@@ -13,7 +13,9 @@ from config import (
     ARCHIVE_ADVANCEDSEARCH_URL,
     ARCHIVE_COLLECTIONS,
     ARCHIVE_LICENCE_MARKER,
+    ARCHIVE_MAX_YEAR,
     ARCHIVE_METADATA_URL,
+    ARCHIVE_UPLOADED_BEFORE,
     DEFAULT_SOURCE,
     MAX_SEARCH_LIMIT,
     NOISY_ARCHIVE_TERMS,
@@ -118,7 +120,9 @@ def _sort_movies(movies: list[dict[str, Any]], sort_by: str, sort_dir: str) -> l
 
 _ARCHIVE_SCOPE = (
     f"mediatype:(movies) AND collection:({' OR '.join(ARCHIVE_COLLECTIONS)}) "
-    f"AND licenseurl:*{ARCHIVE_LICENCE_MARKER}*"
+    f"AND licenseurl:*{ARCHIVE_LICENCE_MARKER}* "
+    f"AND year:[1870 TO {ARCHIVE_MAX_YEAR}] "
+    f"AND publicdate:[1990-01-01 TO {ARCHIVE_UPLOADED_BEFORE}]"
 )
 
 
@@ -538,6 +542,10 @@ async def fetch_details(source: str, external_id: str) -> dict[str, Any]:
                 raise LookupError("archive.org item is not in an allowed collection")
             if ARCHIVE_LICENCE_MARKER not in (as_text(metadata.get("licenseurl")) or "").lower():
                 raise LookupError("archive.org item is not marked public domain")
+            year = _as_year({"year": metadata.get("year")})
+            uploaded = as_text(metadata.get("publicdate")) or "9999"
+            if year is None or year > ARCHIVE_MAX_YEAR or uploaded >= ARCHIVE_UPLOADED_BEFORE:
+                raise LookupError("archive.org item is outside the public-domain catalogue")
             genres: list[str] = []
             for subject in as_text_list(metadata.get("subject")):
                 genres.extend(g.strip() for g in re.split(r"[;,]", subject) if g.strip())
