@@ -211,29 +211,23 @@ def _is_reasonable_archive_result(movie: dict[str, Any], has_query: bool) -> boo
     return True
 
 
-async def _search_archive(
-    q: str,
-    page: int,
-    limit: int,
-    sort_by: str,
-    sort_dir: str,
-    genre: str | None,
-    year_min: int | None,
-    year_max: int | None,
-) -> dict[str, Any]:
-    archive_query = _build_archive_query(q, genre, year_min, year_max)
-    sort_suffix = "asc" if sort_dir.lower() == "asc" else "desc"
-
+def _archive_sort_clause(sort_by: str, sort_dir: str) -> str:
+    suffix = "asc" if sort_dir.lower() == "asc" else "desc"
     if sort_by == "title":
-        sort_clause = f"title {sort_suffix}"
-    elif sort_by == "year":
-        sort_clause = f"date {sort_suffix}"
-    else:
-        sort_clause = "downloads desc"
+        # titleSorter is the lower-cased title: the order _merge_key uses.
+        return f"titleSorter {suffix}"
+    if sort_by == "year":
+        return f"year {suffix}"
+    return "downloads desc"
 
+
+async def _archive_page(
+    client: httpx.AsyncClient, query: str, sort_clause: str, page: int, rows: int
+) -> tuple[list[dict[str, Any]], int]:
+    """One page of archive.org results, in archive.org's order, unfiltered."""
     params: list[tuple[str, Any]] = [
-        ("q", archive_query),
-        ("rows", limit),
+        ("q", query),
+        ("rows", rows),
         ("page", page),
         ("output", "json"),
         ("sort[]", sort_clause),
@@ -245,26 +239,42 @@ async def _search_archive(
         ("fl[]", "subject"),
         ("fl[]", "downloads"),
     ]
-
-    async with httpx.AsyncClient(timeout=12.0) as client:
-        response = await client.get(ARCHIVE_ADVANCEDSEARCH_URL, params=params)
-        response.raise_for_status()
-        payload = response.json()
+    response = await client.get(ARCHIVE_ADVANCEDSEARCH_URL, params=params)
+    response.raise_for_status()
+    payload = response.json()
 
     search_response = payload.get("response", {}) if isinstance(payload, dict) else {}
     docs = search_response.get("docs", []) if isinstance(search_response, dict) else []
     if not isinstance(docs, list):
         docs = []
-
     normalized = [_normalize_archive_doc(doc) for doc in docs if isinstance(doc, dict)]
-    normalized = [movie for movie in normalized if _is_reasonable_archive_result(movie, has_query=bool(q.strip()))]
-    filtered = _apply_filters(normalized, genre=genre, year_min=year_min, year_max=year_max)
-    sorted_results = _sort_movies(filtered, sort_by=sort_by, sort_dir=sort_dir)
+    return normalized, as_int(search_response.get("numFound")) or 0
+
+
+def _keep_archive(movie: dict[str, Any], q: str, genre: str | None, year_min: int | None, year_max: int | None) -> bool:
+    return _is_reasonable_archive_result(movie, has_query=bool(q.strip())) and bool(
+        _apply_filters([movie], genre=genre, year_min=year_min, year_max=year_max)
+    )
+
+
+async def _search_archive(
+    q: str,
+    page: int,
+    limit: int,
+    sort_by: str,
+    sort_dir: str,
+    genre: str | None,
+    year_min: int | None,
+    year_max: int | None,
+) -> dict[str, Any]:
+    query = _build_archive_query(q, genre, year_min, year_max)
+    async with httpx.AsyncClient(timeout=12.0) as client:
+        movies, total = await _archive_page(client, query, _archive_sort_clause(sort_by, sort_dir), page, limit)
+
+    kept = [movie for movie in movies if _keep_archive(movie, q, genre, year_min, year_max)]
     # The total is what archive.org matched, not what survived this page's
     # filters: a page emptied by a filter must not end the infinite scroll.
-    total = as_int(search_response.get("numFound")) or 0
-
-    return {"total": total, "has_more": page * limit < total, "results": sorted_results}
+    return {"total": total, "has_more": page * limit < total, "results": _sort_movies(kept, sort_by, sort_dir)}
 
 
 # ── PeerTube (via SepiaSearch) ────────────────────────────────────────────────
@@ -341,6 +351,51 @@ def _normalize_peertube_video(video: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _peertube_params(q: str, sort_by: str, sort_dir: str) -> list[tuple[str, Any]]:
+    descending = sort_dir.lower() != "asc"
+    if sort_by == "title":
+        remote_sort = "-name" if descending else "name"
+    elif sort_by == "year":
+        remote_sort = "-publishedAt" if descending else "publishedAt"
+    else:
+        # PeerTube has no ratings/seeders; views is the closest popularity signal.
+        remote_sort = "-views"
+
+    params: list[tuple[str, Any]] = [("sort", remote_sort), ("nsfw", "false")]
+    for licence_id in PEERTUBE_FREE_LICENCES:
+        params.append(("licenceOneOf", licence_id))
+    if q.strip():
+        params.append(("search", q.strip()))
+    else:
+        # Browsing: skip short clips so the catalogue looks like films.
+        params.append(("durationMin", PEERTUBE_BROWSE_MIN_DURATION))
+    return params
+
+
+async def _peertube_page(
+    client: httpx.AsyncClient, host: str, params: list[tuple[str, Any]], start: int, count: int
+) -> tuple[list[dict[str, Any]], int]:
+    """Videos of one trusted instance, in SepiaSearch's order, unfiltered.
+    SepiaSearch filters on a single host per query."""
+    response = await client.get(
+        PEERTUBE_SEARCH_URL, params=[*params, ("start", start), ("count", count), ("host", host)]
+    )
+    response.raise_for_status()
+    answer = response.json()
+    answer = answer if isinstance(answer, dict) else {}
+
+    movies: list[dict[str, Any]] = []
+    data = answer.get("data", [])
+    for video in data if isinstance(data, list) else []:
+        if not isinstance(video, dict):
+            continue
+        item = _normalize_peertube_video(video)
+        # Belt and braces: never trust that the index honoured the host filter.
+        if item is not None and item["external_id"].split(":", 1)[0].lower() == host:
+            movies.append(item)
+    return movies, as_int(answer.get("total")) or 0
+
+
 async def _search_peertube(
     q: str,
     page: int,
@@ -351,66 +406,149 @@ async def _search_peertube(
     year_min: int | None,
     year_max: int | None,
 ) -> dict[str, Any]:
-    descending = sort_dir.lower() != "asc"
-    if sort_by == "title":
-        remote_sort = "-name" if descending else "name"
-    elif sort_by == "year":
-        remote_sort = "-publishedAt" if descending else "publishedAt"
-    else:
-        # PeerTube has no ratings/seeders; views is the closest popularity signal.
-        remote_sort = "-views"
-
-    # SepiaSearch filters on one host per query: each trusted instance gets
-    # its share of the page, asked in parallel.
+    # Each trusted instance gets its share of the page, asked in parallel.
     per_host = -(-limit // len(PEERTUBE_TRUSTED_HOSTS))
-    base_params: list[tuple[str, Any]] = [
-        ("start", (page - 1) * per_host),
-        ("count", per_host),
-        ("sort", remote_sort),
-        ("nsfw", "false"),
-    ]
-    for licence_id in PEERTUBE_FREE_LICENCES:
-        base_params.append(("licenceOneOf", licence_id))
-
-    if q.strip():
-        base_params.append(("search", q.strip()))
-    else:
-        # Browsing: skip short clips so the catalogue looks like films.
-        base_params.append(("durationMin", PEERTUBE_BROWSE_MIN_DURATION))
-
-    async def search_host(client: httpx.AsyncClient, host: str) -> dict[str, Any]:
-        response = await client.get(PEERTUBE_SEARCH_URL, params=[*base_params, ("host", host)])
-        response.raise_for_status()
-        answer = response.json()
-        return answer if isinstance(answer, dict) else {}
-
+    params = _peertube_params(q, sort_by, sort_dir)
     async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
         answers = await asyncio.gather(
-            *(search_host(client, host) for host in PEERTUBE_TRUSTED_HOSTS), return_exceptions=True
+            *(_peertube_page(client, host, params, (page - 1) * per_host, per_host) for host in PEERTUBE_TRUSTED_HOSTS),
+            return_exceptions=True,
         )
-    pages = [answer for answer in answers if isinstance(answer, dict)]
+    pages = [answer for answer in answers if not isinstance(answer, BaseException)]
     if not pages:
         raise answers[0]
 
-    normalized: list[dict[str, Any]] = []
-    for answer in pages:
-        data = answer.get("data", [])
-        for video in data if isinstance(data, list) else []:
-            if not isinstance(video, dict):
-                continue
-            item = _normalize_peertube_video(video)
-            # Belt and braces: never trust that the index honoured the host filter.
-            if item is not None and item["external_id"].split(":", 1)[0] in PEERTUBE_TRUSTED_HOSTS:
-                normalized.append(item)
-
-    filtered = _apply_filters(normalized, genre=genre, year_min=year_min, year_max=year_max)
-    sorted_results = _sort_movies(filtered, sort_by=sort_by, sort_dir=sort_dir)
-    totals = [as_int(answer.get("total")) or 0 for answer in pages]
-
+    movies = [movie for part, _ in pages for movie in part]
+    filtered = _apply_filters(movies, genre=genre, year_min=year_min, year_max=year_max)
     return {
-        "total": sum(totals),
-        "has_more": any(page * per_host < total for total in totals),
-        "results": sorted_results,
+        "total": sum(total for _, total in pages),
+        "has_more": any(page * per_host < total for _, total in pages),
+        "results": _sort_movies(filtered, sort_by=sort_by, sort_dir=sort_dir),
+    }
+
+
+# ── Merged order across sources (sort by name / year) ─────────────────────────
+# Page N of every source glued together is not in order: page 1 of PeerTube
+# ends at "T…", then page 2 of archive.org starts again at "B…". Instead a
+# cursor records how many items of each stream (archive.org, each PeerTube
+# instance) were already shown; every request fetches `limit` more from each
+# stream and merges them, so the grid stays in one global order.
+
+_CURSOR_PART = re.compile(r"^([a-z0-9.-]{1,253})=(\d{1,6})$")
+
+
+def parse_cursor(raw: str | None) -> dict[str, int]:
+    """'archive=24,video.blender.org=8' -> offsets; anything malformed -> ValueError."""
+    offsets: dict[str, int] = {}
+    for part in filter(None, (raw or "").split(",")):
+        match = _CURSOR_PART.fullmatch(part)
+        if not match:
+            raise ValueError("Malformed cursor")
+        offsets[match.group(1)] = int(match.group(2))
+    return offsets
+
+
+def _format_cursor(offsets: dict[str, int]) -> str:
+    return ",".join(f"{name}={offset}" for name, offset in offsets.items())
+
+
+def _merge_key(movie: dict[str, Any], sort_by: str) -> Any:
+    if sort_by == "year":
+        return as_int(movie.get("year")) or 0
+    return str(movie.get("title") or "").lower()
+
+
+async def _archive_window(
+    client: httpx.AsyncClient, query: str, sort_clause: str, offset: int, count: int
+) -> tuple[list[dict[str, Any]], int]:
+    """`count` items from `offset`: archive.org only pages, so read the one or
+    two pages covering that range."""
+    first = offset // count + 1
+    pages = await asyncio.gather(
+        *(_archive_page(client, query, sort_clause, page, count) for page in ((first, first + 1) if offset % count else (first,)))
+    )
+    movies = [movie for part, _ in pages for movie in part]
+    skip = offset % count
+    return movies[skip:skip + count], pages[0][1]
+
+
+async def _search_merged(
+    q: str,
+    cursor: dict[str, int],
+    limit: int,
+    source: str,
+    sort_by: str,
+    sort_dir: str,
+    genre: str | None,
+    year_min: int | None,
+    year_max: int | None,
+) -> dict[str, Any]:
+    streams: list[str] = []
+    if source in ("all", "archive"):
+        streams.append("archive")
+    if source in ("all", "peertube"):
+        streams.extend(PEERTUBE_TRUSTED_HOSTS)
+    offsets = {name: cursor.get(name, 0) for name in streams}
+
+    archive_query = _build_archive_query(q, genre, year_min, year_max)
+    archive_sort = _archive_sort_clause(sort_by, sort_dir)
+    peertube_params = _peertube_params(q, sort_by, sort_dir)
+
+    async def fetch(client: httpx.AsyncClient, name: str):
+        if name == "archive":
+            return await _archive_window(client, archive_query, archive_sort, offsets[name], limit)
+        return await _peertube_page(client, name, peertube_params, offsets[name], limit)
+
+    async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
+        answers = await asyncio.gather(*(fetch(client, name) for name in streams), return_exceptions=True)
+
+    buffers: dict[str, list[dict[str, Any]]] = {}
+    totals: dict[str, int] = {}
+    failed: list[str] = []
+    for name, answer in zip(streams, answers):
+        if isinstance(answer, BaseException):
+            logger.warning("Search stream %s failed: %s", name, answer)
+            failed.append(name)
+        else:
+            buffers[name], totals[name] = answer
+            if not buffers[name]:
+                # Nothing more comes back (SepiaSearch caps deep paging even
+                # when its total says otherwise): this stream is finished.
+                totals[name] = offsets[name]
+    if not buffers:
+        raise ProviderError("No search source answered")
+
+    def keep(name: str, movie: dict[str, Any]) -> bool:
+        if name == "archive":
+            return _keep_archive(movie, q, genre, year_min, year_max)
+        return bool(_apply_filters([movie], genre=genre, year_min=year_min, year_max=year_max))
+
+    descending = sort_dir.lower() == "desc"
+    positions = {name: 0 for name in buffers}
+    results: list[dict[str, Any]] = []
+    while len(results) < limit:
+        heads = [name for name in buffers if positions[name] < len(buffers[name])]
+        # A stream that still has items on the server but none fetched here
+        # could hold the next one: stop, the next request continues from here.
+        if any(
+            positions[name] >= len(buffers[name]) and offsets[name] + positions[name] < totals[name]
+            for name in buffers
+        ) or not heads:
+            break
+        pick = (max if descending else min)(heads, key=lambda name: _merge_key(buffers[name][positions[name]], sort_by))
+        movie = buffers[pick][positions[pick]]
+        positions[pick] += 1
+        if keep(pick, movie):
+            results.append(movie)
+
+    next_offsets = {name: offsets[name] + positions.get(name, 0) for name in streams}
+    has_more = any(next_offsets[name] < totals[name] for name in buffers)
+    return {
+        "total": sum(totals.values()),
+        "has_more": has_more,
+        "next_cursor": _format_cursor(next_offsets) if has_more else None,
+        "failed": failed,
+        "results": results,
     }
 
 
@@ -446,6 +584,7 @@ async def search_movies(
     genre: str | None,
     year_min: int | None,
     year_max: int | None,
+    cursor: str | None = None,
 ) -> dict[str, Any]:
     page = max(page, 1)
     limit = max(1, min(limit, MAX_SEARCH_LIMIT))
@@ -455,11 +594,32 @@ async def search_movies(
         sort_by = "title"
         sort_dir = "asc"
 
-    cache_key = (q.strip().lower(), page, limit, source, sort_by, sort_dir, genre, year_min, year_max)
+    merged = sort_by in ("title", "year")
+    cache_key = (q.strip().lower(), page, limit, source, sort_by, sort_dir, genre, year_min, year_max, cursor if merged else None)
     now = asyncio.get_running_loop().time()
     cached = _SEARCH_CACHE.get(cache_key)
     if cached and cached[0] > now:
         return cached[1]
+
+    if merged:
+        answer = await _search_merged(
+            q, parse_cursor(cursor), limit, source, sort_by, sort_dir, genre, year_min, year_max
+        )
+        failed = answer.pop("failed")
+        result = {
+            "query": q,
+            "page": page,
+            "limit": limit,
+            **answer,
+            "applied_sort": {"sort_by": sort_by, "sort_dir": sort_dir},
+            "sources": [name for name in ("archive", "peertube") if source in ("all", name)],
+            "warning": f"Unavailable right now: {', '.join(failed)}" if failed else None,
+        }
+        if not failed:
+            if len(_SEARCH_CACHE) >= SEARCH_CACHE_MAX:
+                _SEARCH_CACHE.pop(next(iter(_SEARCH_CACHE)))
+            _SEARCH_CACHE[cache_key] = (now + SEARCH_CACHE_SECONDS, result)
+        return result
 
     providers = {"archive": _search_archive, "peertube": _search_peertube}
     names = list(providers) if source == "all" else [source]

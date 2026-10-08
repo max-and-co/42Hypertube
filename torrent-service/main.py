@@ -16,6 +16,7 @@ from services.search_service import (
     check_omdb_connectivity,
     check_peertube_connectivity,
     fetch_details,
+    parse_cursor,
     search_movies,
 )
 from services.session_service import (
@@ -73,8 +74,13 @@ async def search_endpoint(
     genre: str | None = Query(None, max_length=50),
     year_min: int | None = Query(None, ge=1870, le=2100),
     year_max: int | None = Query(None, ge=1870, le=2100),
+    cursor: str | None = Query(None, max_length=1000),
 ):
     get_current_user_id(request)
+    try:
+        parse_cursor(cursor)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     try:
         return await search_movies(
             q=q,
@@ -86,6 +92,7 @@ async def search_endpoint(
             genre=genre,
             year_min=year_min,
             year_max=year_max,
+            cursor=cursor,
         )
     except ProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc

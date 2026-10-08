@@ -463,6 +463,7 @@ async def discover_movies(
     year_min: int | None = Query(None, ge=1870, le=2100),
     year_max: int | None = Query(None, ge=1870, le=2100),
     imdb_min: float | None = Query(None, ge=0, le=10),
+    cursor: str | None = Query(None, max_length=1000, pattern=r"^[a-z0-9.,=-]*$"),
     db: AsyncSession = Depends(get_db),
 ):
     user_id = get_current_user_id(request)
@@ -489,6 +490,8 @@ async def discover_movies(
         params["year_min"] = year_min
     if year_max is not None:
         params["year_max"] = year_max
+    if cursor:
+        params["cursor"] = cursor
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -588,6 +591,8 @@ async def discover_movies(
         # Filters are applied per page, so a page may come back short or even
         # empty while later pages still hold matches: has_more stays the source's.
         "has_more": bool(payload.get("has_more")),
+        # Sorted by name / year, the next page continues from this cursor.
+        "next_cursor": payload.get("next_cursor"),
         "applied_sort": {"sort_by": sort_by, "sort_dir": sort_dir},
         "sources": payload.get("sources") or [],
         "warning": payload.get("warning"),

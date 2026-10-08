@@ -24,6 +24,7 @@ type DiscoverMovie = {
 type DiscoverResponse = {
   page: number;
   has_more: boolean;
+  next_cursor?: string | null;
   sources?: string[];
   warning?: string | null;
   results: DiscoverMovie[];
@@ -104,6 +105,9 @@ export default function Home() {
   const dropdownRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const requestId = useRef(0);
+  // Sorted by name or year, the server merges both sources itself and says
+  // where the next page starts.
+  const nextCursor = useRef<string | null>(null);
 
   const effectiveSort = applied.query.trim() && applied.sortBy === "downloads"
     ? { sortBy: "title", sortDir: "asc" }
@@ -130,6 +134,7 @@ export default function Home() {
       if (applied.yearMin) params.set("year_min", applied.yearMin);
       if (applied.yearMax) params.set("year_max", applied.yearMax);
       if (applied.imdbMin) params.set("imdb_min", applied.imdbMin);
+      if (!reset && nextCursor.current) params.set("cursor", nextCursor.current);
 
       try {
         const res = await fetch(`/api/movies/discover?${params.toString()}`);
@@ -150,6 +155,7 @@ export default function Home() {
           };
           return [...(reset ? [] : prev), ...incoming].filter(fresh);
         });
+        nextCursor.current = data.next_cursor ?? null;
         setPage(targetPage);
         setHasMore(Boolean(data.has_more));
       } catch (error) {
