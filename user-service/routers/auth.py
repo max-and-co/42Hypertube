@@ -1,9 +1,10 @@
+import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
 import aiosmtplib
 from email.message import EmailMessage
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response
 from sqlalchemy import func, select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -123,8 +124,21 @@ async def logout(response: Response):
     return {"ok": True, "message": "Logged out successfully"}
 
 
+def _hash_reset_token(token: str) -> str:
+    """Only a digest is stored: whoever reads the users table cannot use a
+    pending reset link to take over the account."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+async def _send_reset_email_safely(to_email: str, token: str) -> None:
+    try:
+        await _send_reset_email(to_email, token)
+    except Exception as e:
+        print(f"[WARN] Failed to send reset email: {e}")
+
+
 @router.post("/forgot-password")
-async def forgot_password(request: Request, db: AsyncSession = Depends(get_db)):
+async def forgot_password(request: Request, background: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     data, error = await parse_form(request, ForgotPasswordRequest)
     if error:
         return error
@@ -132,14 +146,13 @@ async def forgot_password(request: Request, db: AsyncSession = Depends(get_db)):
     user = result.scalars().first()
     if user:
         token = secrets.token_urlsafe(32)
-        user.password_reset_token = token
+        user.password_reset_token = _hash_reset_token(token)
         user.password_reset_expires = datetime.now(timezone.utc) + timedelta(hours=1)
         await db.commit()
-        try:
-            await _send_reset_email(user.email, token)
-        except Exception as e:
-            print(f"[WARN] Failed to send reset email: {e}")
-    # Same answer either way, so the form cannot be used to discover accounts.
+        # Sent after the response: waiting for SMTP here made a registered
+        # address answer seconds slower than an unknown one.
+        background.add_task(_send_reset_email_safely, user.email, token)
+    # Same answer, same timing either way: the form cannot reveal accounts.
     return {"ok": True, "message": "If this email is registered, you will receive a reset link."}
 
 
@@ -148,7 +161,7 @@ async def reset_password(request: Request, db: AsyncSession = Depends(get_db)):
     data, error = await parse_form(request, ResetPasswordRequest)
     if error:
         return error
-    result = await db.execute(select(User).where(User.password_reset_token == data.token))
+    result = await db.execute(select(User).where(User.password_reset_token == _hash_reset_token(data.token)))
     user = result.scalars().first()
     if not user or not user.password_reset_expires:
         return form_error("Invalid or expired token")
