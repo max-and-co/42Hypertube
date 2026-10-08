@@ -303,6 +303,12 @@ def _peertube_host(video: dict[str, Any]) -> str:
     return ""
 
 
+def _minutes(seconds: Any) -> int | None:
+    """Nearest minute, at least 1: a 1 min 54 s video is "2 min", not "1 min"."""
+    value = as_int(seconds)
+    return max(1, round(value / 60)) if value else None
+
+
 def _peertube_year(video: dict[str, Any]) -> int | None:
     for key in ("originallyPublishedAt", "publishedAt"):
         raw = as_text(video.get(key))
@@ -346,7 +352,7 @@ def _normalize_peertube_video(video: dict[str, Any]) -> dict[str, Any] | None:
         "peers": None,
         "url": as_text(video.get("url")),
         "description": truncate_text(as_text(video.get("description"))),
-        "duration_minutes": (as_int(video.get("duration")) or 0) // 60 or None,
+        "duration_minutes": _minutes(video.get("duration")),
         "licence": licence_label,
     }
 
@@ -740,7 +746,7 @@ async def fetch_details(source: str, external_id: str) -> dict[str, Any]:
             "year": _peertube_year(video),
             "description": _plain_text(video.get("description")),
             "thumbnail": f"https://{host}{preview}" if preview else None,
-            "duration_minutes": (as_int(video.get("duration")) or 0) // 60 or None,
+            "duration_minutes": _minutes(video.get("duration")),
             "genres": [label] if (label := as_text(category.get("label"))) else [],
             "original_language": as_text(language.get("id")),
         }
