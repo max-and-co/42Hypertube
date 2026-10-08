@@ -126,18 +126,27 @@ _ARCHIVE_SCOPE = (
 )
 
 
-def _build_archive_query(query: str) -> str:
-    cleaned = " ".join(query.strip().split())
-    if not cleaned:
-        return _ARCHIVE_SCOPE
+def _archive_phrase(text: str) -> str:
+    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
-    escaped = cleaned.replace("\\", "\\\\").replace('"', '\\"')
-    phrase = f'"{escaped}"'
-    return (
-        f"{_ARCHIVE_SCOPE} "
-        f"AND ({phrase} OR title:{phrase} OR description:{phrase} OR creator:{phrase}) "
-        "AND -title:(template OR test OR tutorial)"
-    )
+
+def _build_archive_query(
+    query: str, genre: str | None = None, year_min: int | None = None, year_max: int | None = None
+) -> str:
+    """Filters go into the query itself: filtering a fetched page afterwards
+    left 2 horror films out of 12 per request, and the grid crawled."""
+    parts = [_ARCHIVE_SCOPE]
+    cleaned = " ".join(query.strip().split())
+    if cleaned:
+        phrase = _archive_phrase(cleaned)
+        parts.append(f"({phrase} OR title:{phrase} OR description:{phrase} OR creator:{phrase})")
+        parts.append("-title:(template OR test OR tutorial)")
+    if genre and genre.strip():
+        parts.append(f"subject:{_archive_phrase(' '.join(genre.split()))}")
+    if year_min is not None or year_max is not None:
+        parts.append(f"year:[{year_min or 1870} TO {year_max or 2100}]")
+    return " AND ".join(parts)
 
 
 def _as_year(doc: dict[str, Any]) -> int | None:
@@ -212,7 +221,7 @@ async def _search_archive(
     year_min: int | None,
     year_max: int | None,
 ) -> dict[str, Any]:
-    archive_query = _build_archive_query(q)
+    archive_query = _build_archive_query(q, genre, year_min, year_max)
     sort_suffix = "asc" if sort_dir.lower() == "asc" else "desc"
 
     if sort_by == "title":
