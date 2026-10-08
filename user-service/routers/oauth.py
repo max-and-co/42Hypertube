@@ -138,7 +138,7 @@ async def oauth_token(request: Request, db: AsyncSession = Depends(get_db)):
         )
 
     result = await db.execute(
-        select(User).where(or_(User.username == client_id, func.lower(User.email) == client_id.lower()))
+        select(User).where(or_(func.lower(User.username) == client_id.lower(), func.lower(User.email) == client_id.lower()))
     )
     user = result.scalars().first()
 

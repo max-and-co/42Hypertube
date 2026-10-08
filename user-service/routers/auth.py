@@ -104,7 +104,7 @@ async def login(request: Request, response: Response, db: AsyncSession = Depends
 
     identifier = credentials.identifier.strip()
     result = await db.execute(
-        select(User).where(or_(func.lower(User.email) == identifier.lower(), User.username == identifier))
+        select(User).where(or_(func.lower(User.email) == identifier.lower(), func.lower(User.username) == identifier.lower()))
     )
     db_user = result.scalars().first()
 
