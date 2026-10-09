@@ -11,6 +11,7 @@ import { localize } from "../lib/messages";
 import { emailError, firstError, nameError, usernameError } from "../lib/validation";
 import SiteHeader from "../components/SiteHeader";
 import SiteFooter from "../components/SiteFooter";
+import Dropdown from "../components/Dropdown";
 
 const MAX_AVATAR_BYTES = 2 * 1024 * 1024;
 const AVATAR_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
@@ -254,12 +255,14 @@ export default function Settings() {
             <input type="email" className="field-input" placeholder={t("settings.email-placeholder")} value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} required />
           </div>
           <div className="field">
-            <label className="field-label">{t("settings.lang")}</label>
-            <select className="field-input field-select" value={language} onChange={(e) => setLanguage(e.target.value)}>
-              {LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>{l.label}</option>
-              ))}
-            </select>
+            <label className="field-label" id="settings-lang-label">{t("settings.lang")}</label>
+            <Dropdown
+              className="dropdown-field"
+              labelledBy="settings-lang-label"
+              value={language}
+              onChange={setLanguage}
+              options={LANGUAGES.map((l) => ({ value: l.code, label: l.label }))}
+            />
           </div>
           <div className="f5">
             <button type="submit" className="submit-btn" disabled={saving}>

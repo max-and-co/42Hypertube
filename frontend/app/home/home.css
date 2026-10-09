@@ -98,32 +98,60 @@
   position: absolute;
   top: calc(100% + 14px);
   right: 0;
-  min-width: 210px;
-  padding: 4px 16px 12px;
+  z-index: 55;
+  min-width: 230px;
+  padding: 6px;
   background: var(--bg-2);
   border: 1px solid var(--frame);
   border-top: 2px solid var(--oxblood);
   border-radius: var(--r-box);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  animation: dropdownIn 0.14s var(--ease) both;
+}
+/* Small caret pointing at the avatar. */
+.user-dropdown::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  right: 13px;
+  width: 10px;
+  height: 10px;
+  background: var(--oxblood);
+  transform: rotate(45deg);
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+}
+
+.dropdown-user {
+  padding: 10px 12px 9px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-3);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dropdown-item {
   display: flex;
   align-items: center;
   gap: 11px;
-  padding: 9px 0;
+  padding: 9px 12px;
+  border-radius: 4px;
   color: var(--ink-2);
-  font-size: 0.8rem;
-  letter-spacing: 0.06em;
-  transition: color 0.14s var(--ease);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  transition: color 0.14s var(--ease), background-color 0.14s var(--ease);
 }
-a.dropdown-item:hover { color: var(--rose); }
+a.dropdown-item:hover, a.dropdown-item:focus-visible { outline: none; background: rgba(217, 138, 155, 0.1); color: var(--ink); }
 
 .lang-item {
   display: flex;
   align-items: center;
-  gap: 11px;
-  margin-top: 8px;
-  padding-top: 12px;
+  gap: 14px;
+  margin-top: 4px;
+  padding: 10px 12px 6px;
   border-top: 1px solid var(--rule);
 }
 .lang-label {
@@ -134,16 +162,8 @@ a.dropdown-item:hover { color: var(--rose); }
   color: var(--ink-3);
 }
 
-.lang-select {
-  padding: 3px 0;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--rule-strong);
-  color: var(--ink);
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-.lang-select:focus { outline: none; border-bottom-color: var(--oxblood-hi); }
+.lang-dropdown { min-width: 108px; }
+.lang-dropdown .dropdown-button { font-size: 0.8rem; padding: 3px 0; }
 
 /* --------------------------------------------------------------------------
    Now showing — typographic, the still is atmosphere only
@@ -230,8 +250,6 @@ a.dropdown-item:hover { color: var(--rose); }
 }
 .hero-btn:hover { border-top-color: var(--rose); color: var(--rose); }
 
-.hero-btn-secondary { border-top-color: var(--rule-strong); color: var(--ink-2); }
-.hero-btn-secondary:hover { border-top-color: var(--ink-2); color: var(--ink); }
 
 /* --------------------------------------------------------------------------
    Body
@@ -258,7 +276,7 @@ a.dropdown-item:hover { color: var(--rose); }
   color: var(--ink-3);
 }
 
-.filter-field input, .filter-field select {
+.filter-field input {
   width: 100%;
   min-width: 0;
   padding: 5px 0;
@@ -270,9 +288,10 @@ a.dropdown-item:hover { color: var(--rose); }
   font-size: 0.88rem;
   transition: border-color 0.16s var(--ease);
 }
-.filter-field select { cursor: pointer; }
-.filter-field input::placeholder { color: var(--ink-3); }
-.filter-field input:focus, .filter-field select:focus { outline: none; border-bottom-color: var(--oxblood-hi); }
+/* Empty filters read as "any", not as a value already typed in. */
+.filter-field input::placeholder { color: var(--ink-3); opacity: 0.6; font-style: italic; }
+.filter-field input:hover { border-bottom-color: var(--ink-3); }
+.filter-field input:focus { outline: none; border-bottom-color: var(--oxblood-hi); }
 
 .filters-actions { display: flex; flex-wrap: wrap; gap: 26px; margin-top: 24px; }
 
@@ -486,8 +505,7 @@ a.dropdown-item:hover { color: var(--rose); }
 
   .hero { min-height: 360px; }
   .hero-title { font-size: clamp(2rem, 9vw, 2.8rem); max-width: none; }
-  .hero-actions { gap: 18px; width: 100%; }
-  .hero-btn { flex: 1; min-width: 0; text-align: center; }
+  .hero-actions { gap: 18px; }
 
   /* minmax(0, …): a select or a wide poster must not widen its column. */
   .filters-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }

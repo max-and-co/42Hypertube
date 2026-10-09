@@ -11,6 +11,7 @@ import { localize } from "../lib/messages";
 import { emailError, firstError, nameError, passwordError, usernameError } from "../lib/validation";
 import SiteHeader from "../components/SiteHeader";
 import SiteFooter from "../components/SiteFooter";
+import Dropdown from "../components/Dropdown";
 
 const LANGUAGES = [
   { code: "en", label: "English" },
@@ -129,22 +130,17 @@ export default function Register() {
             </div>
 
             <div className="field f5">
-              <label className="field-label" htmlFor="reg-lang">{t("register.lang")}</label>
-              <select
-                id="reg-lang"
-                className="field-input field-select"
+              <label className="field-label" id="reg-lang-label">{t("register.lang")}</label>
+              <Dropdown
+                className="dropdown-field"
+                labelledBy="reg-lang-label"
                 value={language}
-                onChange={(e) => {
-                  setLanguage(e.target.value);
-                  setLang(e.target.value as Lang);
+                onChange={(value) => {
+                  setLanguage(value);
+                  setLang(value as Lang);
                 }}
-              >
-                {LANGUAGES.map((l) => (
-                  <option key={l.code} value={l.code}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
+                options={LANGUAGES.map((l) => ({ value: l.code, label: l.label }))}
+              />
             </div>
 
             <div className="f6">

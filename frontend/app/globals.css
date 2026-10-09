@@ -259,6 +259,95 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .field-input:hover, .field-select:hover { border-bottom-color: var(--ink-3); }
 .field-input:focus, .field-select:focus { outline: none; border-bottom-color: var(--oxblood-hi); }
 
+/* Dropdown (components/Dropdown.tsx) -------------------------------------- */
+/* Same underline as the text fields; the list is a framed panel in the
+   page's colours instead of the OS menu. */
+.dropdown { position: relative; min-width: 0; }
+
+.dropdown-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 5px 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--rule-strong);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s var(--ease), color 0.16s var(--ease);
+}
+.dropdown-button:hover { border-bottom-color: var(--ink-3); }
+.dropdown-button:focus-visible,
+.dropdown.is-open .dropdown-button { outline: none; border-bottom-color: var(--oxblood-hi); }
+
+.dropdown-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dropdown-chevron {
+  flex-shrink: 0;
+  color: var(--ink-3);
+  transition: transform 0.18s var(--ease), color 0.16s var(--ease);
+}
+.dropdown-button:hover .dropdown-chevron,
+.dropdown.is-open .dropdown-chevron { color: var(--rose); }
+.dropdown.is-open .dropdown-chevron { transform: rotate(180deg); }
+
+.dropdown-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  z-index: 60;
+  min-width: 100%;
+  max-height: 264px;
+  margin: 0;
+  padding: 5px;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--bg-2);
+  border: 1px solid var(--frame);
+  border-top: 2px solid var(--oxblood);
+  border-radius: var(--r-box);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  animation: dropdownIn 0.14s var(--ease) both;
+}
+.dropdown-list:focus { outline: none; }
+.dropdown-list-left { left: 0; }
+.dropdown-list-right { right: 0; }
+
+.dropdown-option {
+  position: relative;
+  padding: 8px 12px 8px 22px;
+  border-radius: 4px;
+  color: var(--ink-2);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dropdown-option.is-active { background: rgba(217, 138, 155, 0.1); color: var(--ink); }
+.dropdown-option.is-selected { color: var(--rose); }
+.dropdown-option.is-selected::before {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: var(--rose);
+}
+
+@keyframes dropdownIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Large variant for the register / settings forms. */
+.dropdown-field .dropdown-button { padding: 7px 0; font-size: 1rem; }
+
 /* Actions ------------------------------------------------------------------ */
 .submit-btn, .avatar-upload-btn, .hero-btn, .row-more, .search-btn,
 .watch-comment-form button, .oauth-btn, .logout-btn, .header-logout-btn {

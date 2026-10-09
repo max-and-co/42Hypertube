@@ -7,6 +7,7 @@ import { useLanguage } from "../i18n/LanguageContext";
 import type { Lang } from "../i18n/translations";
 import { getSessionUser, logout, sendForm, avatarUrl } from "../lib/api";
 import SiteFooter from "../components/SiteFooter";
+import Dropdown from "../components/Dropdown";
 
 type DiscoverMovie = {
   id: string;
@@ -51,6 +52,12 @@ const DEFAULT_FILTERS: Filters = {
   yearMax: "",
   imdbMin: "",
 };
+
+// Values are matched against archive.org subjects and PeerTube categories.
+const GENRES = [
+  "comedy", "drama", "horror", "western", "crime", "film noir", "sci-fi", "adventure",
+  "romance", "mystery", "thriller", "war", "animation", "documentary", "musical",
+];
 
 const POSTER_GRADIENTS = [
   "linear-gradient(160deg, #444444 0%, #474747 50%, #424242 100%)",
@@ -201,8 +208,15 @@ export default function Home() {
         setDropdownOpen(false);
       }
     };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDropdownOpen(false);
+    };
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
   }, []);
 
   // Infinite scroll: a marker under the grid loads the next page when it comes
@@ -278,8 +292,15 @@ export default function Home() {
     router.push(`/watch/${encodeURIComponent(movie.source)}/${encodeURIComponent(movie.id)}`);
   };
 
-  const setField = (field: keyof Filters) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+  const setField = (field: keyof Filters) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setDraft((prev) => ({ ...prev, [field]: e.target.value }));
+
+  // A choice in a list applies at once, like a select would be expected to.
+  const setChoice = (field: keyof Filters, value: string) => {
+    const next = { ...draft, [field]: value };
+    setDraft(next);
+    apply(next);
+  };
 
   const heroMovie = displayed.find((movie) => Boolean(movie.thumbnail)) ?? displayed[0] ?? null;
 
@@ -324,6 +345,8 @@ export default function Home() {
               className={`user-btn${profilePicture ? " user-btn-avatar" : ""}`}
               onClick={() => setDropdownOpen((v) => !v)}
               aria-label="User menu"
+              aria-haspopup="menu"
+              aria-expanded={dropdownOpen}
             >
               {profilePicture ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -338,21 +361,24 @@ export default function Home() {
 
             {dropdownOpen && (
               <div className="user-dropdown">
-                {username && (
-                  <div className="dropdown-item" style={{ cursor: "default", pointerEvents: "none", color: "#6f6f6f" }}>
-                    {username}
-                  </div>
-                )}
+                {username && <div className="dropdown-user">{username}</div>}
                 <a href="/settings" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                   {t("settings")}
                 </a>
                 <div className="lang-item">
-                  <span className="lang-label">{t("lang")}</span>
-                  <select className="lang-select" value={lang} onChange={(e) => handleLanguageChange(e.target.value as Lang)}>
-                    <option value="en">English</option>
-                    <option value="fr">Français</option>
-                    <option value="es">Español</option>
-                  </select>
+                  <span className="lang-label" id="header-lang-label">{t("lang")}</span>
+                  <Dropdown
+                    className="lang-dropdown"
+                    align="right"
+                    labelledBy="header-lang-label"
+                    value={lang}
+                    onChange={(value) => handleLanguageChange(value as Lang)}
+                    options={[
+                      { value: "en", label: "English" },
+                      { value: "fr", label: "Français" },
+                      { value: "es", label: "Español" },
+                    ]}
+                  />
                 </div>
               </div>
             )}
@@ -384,9 +410,6 @@ export default function Home() {
               <button className="hero-btn" disabled={!heroMovie} onClick={() => heroMovie && openWatchPage(heroMovie)}>
                 {t("home.watch-now")}
               </button>
-              <button className="hero-btn hero-btn-secondary" onClick={() => fetchMovies(1, true)}>
-                {t("home.refresh")}
-              </button>
             </div>
           </div>
         </section>
@@ -401,45 +424,68 @@ export default function Home() {
             noValidate
           >
             <div className="filters-grid">
-              <label className="filter-field">
-                <span>{t("home.sort")}</span>
-                <select value={draft.sortBy} onChange={setField("sortBy")}>
-                  <option value="downloads">{t("home.sort-popularity")}</option>
-                  <option value="title">{t("home.sort-name")}</option>
-                  <option value="imdb_rating">{t("home.sort-imdb")}</option>
-                  <option value="year">{t("home.sort-year")}</option>
-                </select>
-              </label>
-              <label className="filter-field">
-                <span>{t("home.direction")}</span>
-                <select value={draft.sortDir} onChange={setField("sortDir")}>
-                  <option value="desc">{t("home.desc")}</option>
-                  <option value="asc">{t("home.asc")}</option>
-                </select>
-              </label>
-              <label className="filter-field">
-                <span>{t("home.source")}</span>
-                <select value={draft.source} onChange={setField("source")}>
-                  <option value="all">{t("home.source-all")}</option>
-                  <option value="archive">Archive.org</option>
-                  <option value="peertube">PeerTube</option>
-                </select>
-              </label>
-              <label className="filter-field">
-                <span>{t("home.genre")}</span>
-                <input value={draft.genre} onChange={setField("genre")} maxLength={50} placeholder="Drama" />
-              </label>
+              <div className="filter-field">
+                <span id="filter-sort">{t("home.sort")}</span>
+                <Dropdown
+                  labelledBy="filter-sort"
+                  value={draft.sortBy}
+                  onChange={(value) => setChoice("sortBy", value)}
+                  options={[
+                    { value: "downloads", label: t("home.sort-popularity") },
+                    { value: "title", label: t("home.sort-name") },
+                    { value: "imdb_rating", label: t("home.sort-imdb") },
+                    { value: "year", label: t("home.sort-year") },
+                  ]}
+                />
+              </div>
+              <div className="filter-field">
+                <span id="filter-dir">{t("home.direction")}</span>
+                <Dropdown
+                  labelledBy="filter-dir"
+                  value={draft.sortDir}
+                  onChange={(value) => setChoice("sortDir", value)}
+                  options={[
+                    { value: "desc", label: t("home.desc") },
+                    { value: "asc", label: t("home.asc") },
+                  ]}
+                />
+              </div>
+              <div className="filter-field">
+                <span id="filter-source">{t("home.source")}</span>
+                <Dropdown
+                  labelledBy="filter-source"
+                  value={draft.source}
+                  onChange={(value) => setChoice("source", value)}
+                  options={[
+                    { value: "all", label: t("home.source-all") },
+                    { value: "archive", label: "Archive.org" },
+                    { value: "peertube", label: "PeerTube" },
+                  ]}
+                />
+              </div>
+              <div className="filter-field">
+                <span id="filter-genre">{t("home.genre")}</span>
+                <Dropdown
+                  labelledBy="filter-genre"
+                  value={draft.genre}
+                  onChange={(value) => setChoice("genre", value)}
+                  options={[
+                    { value: "", label: t("home.genre-all") },
+                    ...GENRES.map((genre) => ({ value: genre, label: t(`genre.${genre}`) })),
+                  ]}
+                />
+              </div>
               <label className="filter-field">
                 <span>{t("home.year-min")}</span>
-                <input value={draft.yearMin} onChange={setField("yearMin")} inputMode="numeric" maxLength={4} placeholder="1920" />
+                <input value={draft.yearMin} onChange={setField("yearMin")} inputMode="numeric" maxLength={4} placeholder={t("home.any")} />
               </label>
               <label className="filter-field">
                 <span>{t("home.year-max")}</span>
-                <input value={draft.yearMax} onChange={setField("yearMax")} inputMode="numeric" maxLength={4} placeholder="1960" />
+                <input value={draft.yearMax} onChange={setField("yearMax")} inputMode="numeric" maxLength={4} placeholder={t("home.any")} />
               </label>
               <label className="filter-field">
                 <span>{t("home.imdb-min")}</span>
-                <input value={draft.imdbMin} onChange={setField("imdbMin")} inputMode="decimal" maxLength={4} placeholder="7.5" />
+                <input value={draft.imdbMin} onChange={setField("imdbMin")} inputMode="decimal" maxLength={4} placeholder={t("home.any")} />
               </label>
             </div>
             {formError && <p className="filter-error" role="alert">{formError}</p>}
