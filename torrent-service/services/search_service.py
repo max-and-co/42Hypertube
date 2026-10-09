@@ -85,12 +85,16 @@ def _apply_filters(
     year_min: int | None,
     year_max: int | None,
 ) -> list[dict[str, Any]]:
-    normalized_genre = (genre or "").strip().lower()
+    def words(value: Any) -> str:
+        # "Film-Noir", "film noir" and "Film Noir" are the same genre.
+        return " ".join(re.split(r"[^a-z0-9]+", str(value).lower())).strip()
+
+    normalized_genre = words(genre or "")
     filtered: list[dict[str, Any]] = []
 
     for movie in movies:
         if normalized_genre:
-            genres = [str(value).lower() for value in (movie.get("genres") or [])]
+            genres = [words(value) for value in (movie.get("genres") or [])]
             if not any(normalized_genre in value for value in genres):
                 continue
 
@@ -231,6 +235,8 @@ async def _archive_page(
         ("page", page),
         ("output", "json"),
         ("sort[]", sort_clause),
+        # Tie-breaker: equal titles/years must keep one order across pages.
+        ("sort[]", "identifier asc"),
         ("fl[]", "identifier"),
         ("fl[]", "title"),
         ("fl[]", "year"),
@@ -357,7 +363,16 @@ def _normalize_peertube_video(video: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _peertube_params(q: str, sort_by: str, sort_dir: str) -> list[tuple[str, Any]]:
+# PeerTube has categories, not film genres: only these genres have one.
+_PEERTUBE_CATEGORY = {"comedy": 9, "music": 1, "musical": 1, "animation": 2, "documentary": 2}
+
+
+def _peertube_params(
+    q: str, sort_by: str, sort_dir: str,
+    genre: str | None = None, year_min: int | None = None, year_max: int | None = None,
+) -> list[tuple[str, Any]] | None:
+    """SepiaSearch query, with the filters applied by the index itself so a
+    page is not emptied afterwards. None: PeerTube cannot have this genre."""
     descending = sort_dir.lower() != "asc"
     if sort_by == "title":
         remote_sort = "-name" if descending else "name"
@@ -375,6 +390,16 @@ def _peertube_params(q: str, sort_by: str, sort_dir: str) -> list[tuple[str, Any
     else:
         # Browsing: skip short clips so the catalogue looks like films.
         params.append(("durationMin", PEERTUBE_BROWSE_MIN_DURATION))
+    if genre and genre.strip():
+        category = _PEERTUBE_CATEGORY.get(genre.strip().lower())
+        if category is None:
+            return None
+        params.append(("categoryOneOf", category))
+    # The year shown is the original publication date when the uploader set it.
+    if year_min is not None:
+        params.append(("originallyPublishedStartDate", f"{year_min}-01-01T00:00:00Z"))
+    if year_max is not None:
+        params.append(("originallyPublishedEndDate", f"{year_max}-12-31T23:59:59Z"))
     return params
 
 
@@ -414,7 +439,9 @@ async def _search_peertube(
 ) -> dict[str, Any]:
     # Each trusted instance gets its share of the page, asked in parallel.
     per_host = -(-limit // len(PEERTUBE_TRUSTED_HOSTS))
-    params = _peertube_params(q, sort_by, sort_dir)
+    params = _peertube_params(q, sort_by, sort_dir, genre, year_min, year_max)
+    if params is None:
+        return {"total": 0, "has_more": False, "results": []}
     async with httpx.AsyncClient(timeout=12.0, follow_redirects=True) as client:
         answers = await asyncio.gather(
             *(_peertube_page(client, host, params, (page - 1) * per_host, per_host) for host in PEERTUBE_TRUSTED_HOSTS),
@@ -492,13 +519,15 @@ async def _search_merged(
     streams: list[str] = []
     if source in ("all", "archive"):
         streams.append("archive")
-    if source in ("all", "peertube"):
+    peertube_params = _peertube_params(q, sort_by, sort_dir, genre, year_min, year_max)
+    if source in ("all", "peertube") and peertube_params is not None:
         streams.extend(PEERTUBE_TRUSTED_HOSTS)
+    if not streams:
+        return {"total": 0, "has_more": False, "next_cursor": None, "failed": [], "results": []}
     offsets = {name: cursor.get(name, 0) for name in streams}
 
     archive_query = _build_archive_query(q, genre, year_min, year_max)
     archive_sort = _archive_sort_clause(sort_by, sort_dir)
-    peertube_params = _peertube_params(q, sort_by, sort_dir)
 
     async def fetch(client: httpx.AsyncClient, name: str):
         if name == "archive":
