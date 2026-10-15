@@ -71,6 +71,12 @@ LIVE_READY_BYTES = int(os.getenv("STREAM_LIVE_READY_BYTES", str(1024 * 1024)))
 # How long a player request may wait for a piece before the response ends.
 STREAM_WAIT_SECONDS = float(os.getenv("STREAM_WAIT_SECONDS", "120"))
 
+# archive.org items whose MKV original is played (and converted on the fly)
+# instead of their MP4 copy: the film to open to show MKV support (III.3).
+MKV_DEMO_ITEMS = tuple(
+    item.strip() for item in os.getenv("MKV_DEMO_ITEMS", "InTheParktinted").split(",") if item.strip()
+)
+
 # Optional: English / preferred-language subtitles for films with an IMDb id.
 OPENSUBTITLES_API_KEY = os.getenv("OPENSUBTITLES_API_KEY", "").strip()
 TORRENT_POLL_SECONDS = float(os.getenv("TORRENT_POLL_SECONDS", "1.0"))

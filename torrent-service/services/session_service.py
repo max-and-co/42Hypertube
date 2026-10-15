@@ -18,6 +18,7 @@ How playing-while-downloading works here:
     done, it is remuxed once into a normal seekable mp4 kept for later.
 """
 import asyncio
+import hashlib
 import json
 import logging
 from datetime import datetime, timezone
@@ -36,6 +37,7 @@ from config import (
     LIVE_READY_BYTES,
     MEDIA_ROOT,
     METADATA_TIMEOUT_SECONDS,
+    MKV_DEMO_ITEMS,
     STALL_TIMEOUT_SECONDS,
     STREAM_WAIT_SECONDS,
     TORRENT_POLL_SECONDS,
@@ -57,7 +59,9 @@ logger = logging.getLogger(__name__)
 # Browser-playable formats rank highest. Archive.org items often ship a huge
 # .mpeg master alongside a much smaller .mp4 derivative; without this ranking a
 # size-based pick would choose the multi-gigabyte master.
-_FORMAT_RANK = {".mp4": 3, ".webm": 3, ".m4v": 2, ".ogv": 2, ".mkv": 1}
+# Subject III.3: only mp4/webm count as natively readable; anything else
+# (.ogv's Theora is gone from Chrome) goes through the on-the-fly conversion.
+_FORMAT_RANK = {".mp4": 3, ".webm": 3, ".m4v": 2, ".ogv": 1, ".mkv": 1}
 # Containers FFmpeg can read from a pipe, front to back, while they download.
 # (.mov/.avi may keep their index at the end: those are converted once complete.)
 _PIPE_FRIENDLY = {".mkv", ".webm", ".mpeg", ".mpg", ".ts", ".ogv"}
@@ -71,6 +75,10 @@ COMPLETE_MARKER = ".complete.json"
 # peers and HTTP webseeds alike deliver the film front to back.
 READAHEAD_PIECES = 12
 READ_CHUNK = 512 * 1024
+# archive.org: with no progress for this long, missing pieces are fetched
+# over HTTP (hash-verified) this many at a time.
+HTTP_FALLBACK_AFTER_SECONDS = 8
+HTTP_FALLBACK_PIECES = 64
 FEED_CHUNK = 1024 * 1024
 
 
@@ -80,6 +88,19 @@ def _format_rank(name: str) -> int:
 
 def _needs_conversion(path: Path) -> bool:
     return _format_rank(path.name) < 2
+
+
+def _selection_key(name: str, size: int, prefer_mkv: bool = False) -> tuple[int, int]:
+    """Which video file of a torrent to stream (highest key wins): browser
+    formats first, then the biggest (best quality) file.
+
+    For the MKV demo films (MKV_DEMO_ITEMS) the MKV original wins over the
+    MP4 copy archive.org derives from it, so the on-the-fly conversion the
+    subject requires can be shown; the smallest MKV is the quickest.
+    """
+    if prefer_mkv and Path(name).suffix.lower() == ".mkv":
+        return (4, -size)
+    return (_format_rank(name), size)
 
 
 def _spawn(coro) -> asyncio.Task:
@@ -195,6 +216,70 @@ async def build_torrent_params(source: str, external_id: str, target_dir: Path):
     params.save_path = str(target_dir)
     params.storage_mode = lt.storage_mode_t.storage_mode_sparse
     return params
+
+
+def _boundary_pieces(info, file_index: int) -> list[int]:
+    """First/last pieces of a file that it shares with other files."""
+    files = info.files()
+    start = files.file_offset(file_index)
+    end = start + files.file_size(file_index) - 1
+    pieces = sorted({start // info.piece_length(), end // info.piece_length()})
+    return [p for p in pieces if len(info.map_block(p, 0, info.piece_size(p))) > 1]
+
+
+async def _fetch_piece(client: httpx.AsyncClient, info, piece: int, external_id: str) -> bytes | None:
+    """One piece read straight from the archive.org files it spans (as a
+    webseed would), returned only if it matches the torrent's SHA-1."""
+    files = info.files()
+    data = b""
+    try:
+        for part in info.map_block(piece, 0, info.piece_size(piece)):
+            relative = files.file_path(part.file_index).split("/", 1)[-1]
+            response = await client.get(
+                f"https://archive.org/download/{quote(external_id)}/{quote(relative)}",
+                headers={"Range": f"bytes={part.offset}-{part.offset + part.size - 1}"},
+            )
+            response.raise_for_status()
+            data += response.content[: part.size]
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("Piece %s of %s: HTTP fetch failed: %s", piece, external_id, exc)
+        return None
+    if hashlib.sha1(data).digest() != bytes(info.hash_for_piece(piece)):
+        logger.warning("Piece %s of %s: hash mismatch, not used", piece, external_id)
+        return None
+    return data
+
+
+async def _fill_pieces(handle, info, pieces: list[int], external_id: str, label: str) -> None:
+    """Hand libtorrent pieces it is not getting by itself (hash-verified)."""
+    semaphore = asyncio.Semaphore(4)
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        async def one(piece: int) -> bool:
+            async with semaphore:
+                if handle.have_piece(piece):
+                    return False
+                data = await _fetch_piece(client, info, piece, external_id)
+                if data is None:
+                    return False
+                handle.add_piece(piece, data, 0)
+                return True
+        filled = sum(await asyncio.gather(*(one(p) for p in pieces)))
+    if filled:
+        logger.info("%s: %d piece(s) of %s fetched over HTTP (hash verified)", label, filled, external_id)
+
+
+async def _fill_boundary_pieces(handle, info, file_index: int, external_id: str) -> None:
+    """archive.org torrents pack every file of an item back to back, so the
+    first and last pieces of the film also hold the end/start of its
+    neighbours (a .gif, an .ogv). libtorrent's webseed client never delivers
+    those mixed pieces for some items, and the stream cannot start without
+    the first one."""
+    for attempt in range(3):
+        await asyncio.sleep(8 if attempt == 0 else 20)
+        missing = [p for p in _boundary_pieces(info, file_index) if not handle.have_piece(p)]
+        if not missing:
+            return
+        await _fill_pieces(handle, info, missing, external_id, "Boundary")
 
 
 def _enable_sequential(handle) -> None:
@@ -389,6 +474,45 @@ async def _feed_ffmpeg(src: TorrentFile, stdin: asyncio.StreamWriter) -> None:
         stdin.close()
 
 
+async def _probe_streams(path: Path) -> dict[str, str]:
+    """{'video': codec, 'pix_fmt': ..., 'audio': codec} of the first streams,
+    read from the start of the file (the rest may not be downloaded yet)."""
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error", "-show_entries", "stream=codec_type,codec_name,pix_fmt",
+            "-of", "json", str(path),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+        out, _ = await asyncio.wait_for(process.communicate(), timeout=20)
+        streams = json.loads(out or b"{}").get("streams") or []
+    except (asyncio.TimeoutError, ValueError, OSError):
+        return {}
+    found: dict[str, str] = {}
+    for stream in streams:
+        kind = stream.get("codec_type")
+        if kind in ("video", "audio") and kind not in found:
+            found[kind] = str(stream.get("codec_name") or "")
+            if kind == "video":
+                found["pix_fmt"] = str(stream.get("pix_fmt") or "")
+    return found
+
+
+def _codec_args(streams: dict[str, str]) -> list[str]:
+    """Only re-encode what a browser cannot play. Most MKVs hold H.264 video
+    with AC3 audio: the video is copied untouched and only the audio becomes
+    AAC, far faster than real time. Anything else (Theora, HEVC, 10-bit...)
+    is re-encoded to H.264."""
+    if streams.get("video") == "h264" and streams.get("pix_fmt") in ("yuv420p", "yuvj420p"):
+        video = ["-c:v", "copy"]
+    else:
+        video = [
+            "-vf", "scale='min(1280,iw)':-2", "-pix_fmt", "yuv420p",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        ]
+    audio = ["-c:a", "copy"] if streams.get("audio") == "aac" else ["-c:a", "aac", "-ac", "2", "-b:a", "160k"]
+    return video + audio
+
+
 async def _convert_live(session_id: str, movie_id: int, src: TorrentFile, final_path: Path) -> None:
     """Convert to fragmented mp4 as the source downloads; the player reads the
     output while it grows. Then remux once into a seekable mp4 for later."""
@@ -407,13 +531,18 @@ async def _convert_live(session_id: str, movie_id: int, src: TorrentFile, final_
                 return
             await asyncio.sleep(1.0)
 
+    streams = await _probe_streams(src.path)
+    codec_args = _codec_args(streams)
+    logger.info(
+        "Converting %s on the fly: video %s %s, audio %s %s", src.path.name,
+        streams.get("video"), "copied" if "copy" in codec_args[:2] else "-> H.264",
+        streams.get("audio") or "none", "copied" if codec_args[-2:] == ["-c:a", "copy"] else "-> AAC",
+    )
     process = await asyncio.create_subprocess_exec(
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-i", "pipe:0" if from_pipe else str(src.path),
         "-map", "0:v:0", "-map", "0:a:0?",
-        "-vf", "scale='min(1280,iw)':-2", "-pix_fmt", "yuv420p",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-        "-c:a", "aac", "-ac", "2", "-b:a", "160k",
+        *codec_args,
         "-movflags", "frag_keyframe+empty_moov+default_base_moof",
         "-f", "mp4", str(out.path),
         stdin=asyncio.subprocess.PIPE if from_pipe else asyncio.subprocess.DEVNULL,
@@ -457,8 +586,11 @@ async def _convert_live(session_id: str, movie_id: int, src: TorrentFile, final_
     )
     if await remux.wait() == 0 and src.complete:
         tmp.replace(final_path)
-        _write_marker(final_path.parent, final_path, converted=True)
+        # The marker sits in the film's top folder, where the next viewing looks.
+        movie_dir = next(parent for parent in final_path.parents if parent.parent == MEDIA_ROOT)
+        _write_marker(movie_dir, final_path, converted=True)
         await update_movie_state(movie_id, video_path=str(final_path))
+        await _set(session_id, status="complete")
     else:
         tmp.unlink(missing_ok=True)
 
@@ -501,6 +633,7 @@ async def _download(session_id: str, movie: dict[str, Any], target_dir: Path, pr
     movie_id = int(movie["id"])
     source, external_id = str(movie["external_source"]), str(movie["external_id"])
 
+    prefer_mkv = source == "archive" and external_id in MKV_DEMO_ITEMS
     params = await build_torrent_params(source, external_id, target_dir)
     lt_session = lt.session()
     handle = lt_session.add_torrent(params)
@@ -508,6 +641,8 @@ async def _download(session_id: str, movie: dict[str, Any], target_dir: Path, pr
     await update_movie_state(movie_id, stream_status="buffering", last_accessed_at=datetime.now(timezone.utc))
 
     src: TorrentFile | None = None
+    boundary_task: asyncio.Task | None = None
+    fallback_task: asyncio.Task | None = None
     subtitle_files: list[tuple[int, Path]] = []
     converting = False
     loop = asyncio.get_running_loop()
@@ -525,7 +660,16 @@ async def _download(session_id: str, movie: dict[str, Any], target_dir: Path, pr
             done = int(getattr(status, "total_wanted_done", 0) or 0)
             if done > last_done:
                 last_done, last_progress_at = done, now
-            elif now - last_progress_at > STALL_TIMEOUT_SECONDS:
+            elif (
+                source == "archive" and src is not None and now - last_progress_at > HTTP_FALLBACK_AFTER_SECONDS
+                and (fallback_task is None or fallback_task.done())
+            ):
+                # libtorrent gave up on archive.org's webseeds (one listed
+                # server is dead): fetch the next missing pieces ourselves.
+                info = handle.torrent_file()
+                missing = [p for p in _pieces_for(src, 0, src.size - 1) if not handle.have_piece(p)]
+                fallback_task = _spawn(_fill_pieces(handle, info, missing[:HTTP_FALLBACK_PIECES], external_id, "Stall fallback"))
+            if now - last_progress_at > STALL_TIMEOUT_SECONDS:
                 raise RuntimeError(f"Download stalled: no data received for {int(STALL_TIMEOUT_SECONDS)}s")
 
             if status.has_metadata and src is None:
@@ -533,7 +677,7 @@ async def _download(session_id: str, movie: dict[str, Any], target_dir: Path, pr
                 files = info.files()
                 videos = sorted(
                     (
-                        (_format_rank(files.file_path(i)), files.file_size(i), i)
+                        (*_selection_key(files.file_path(i), files.file_size(i), prefer_mkv), i)
                         for i in range(files.num_files())
                         if is_video_file(Path(files.file_path(i)).name)
                     ),
@@ -565,6 +709,8 @@ async def _download(session_id: str, movie: dict[str, Any], target_dir: Path, pr
                     piece_length=info.piece_length(),
                 )
                 runtime_state.SOURCES[session_id] = src
+                if source == "archive" and _boundary_pieces(info, chosen):
+                    boundary_task = _spawn(_fill_boundary_pieces(handle, info, chosen, external_id))
                 # An mp4 may keep its index (moov) at the end: fetch that early too.
                 tail = _pieces_for(src, max(0, src.size - 2 * src.piece_length), src.size - 1)
                 for piece in tail:
@@ -604,6 +750,9 @@ async def _download(session_id: str, movie: dict[str, Any], target_dir: Path, pr
 
             await asyncio.sleep(TORRENT_POLL_SECONDS)
     finally:
+        for task in (boundary_task, fallback_task):
+            if task is not None:
+                task.cancel()
         if src is not None and not src.complete:
             src.failed = True
         if src is not None:
@@ -612,7 +761,9 @@ async def _download(session_id: str, movie: dict[str, Any], target_dir: Path, pr
         lt_session.pause()
 
     # Kept on disk so the next viewer does not download it again.
-    _write_marker(target_dir, src.path, converted=False)
+    if not _needs_conversion(src.path):
+        # A converted film gets its marker from the conversion, pointing at the mp4.
+        _write_marker(target_dir, src.path, converted=False)
     await update_movie_state(movie_id, last_accessed_at=datetime.now(timezone.utc))
     await _set(session_id, progress=1.0)
     if not _needs_conversion(src.path):
